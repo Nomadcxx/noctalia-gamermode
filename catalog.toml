@@ -1,7 +1,7 @@
 [[plugin]]
 id = "nomadcxx/gamermode"
 name = "Gamer Mode"
-version = "0.1.0"
+version = "0.2.0"
 author = "Nomadcxx"
 license = "MIT"
 icon = "device-gamepad-2"
