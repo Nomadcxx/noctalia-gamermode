@@ -61,9 +61,12 @@ local function respond(command)
     return { stdout = "", exitCode = 1 }
 end
 
--- A systemctl call against a system unit: neither --user nor a read-only probe. These are
--- the calls polkit challenges.
+-- A write against a system unit: elevated through pkexec, or the unelevated fallback used
+-- where pkexec is absent. Read-only probes and --user calls are neither.
 local function isPrivileged(command)
+    if command:find("^pkexec ") then
+        return true
+    end
     return command:find("^systemctl ") ~= nil
         and not command:find("--user", 1, true)
         and not command:find("is-active", 1, true)
@@ -164,10 +167,11 @@ assert(suspends == #RUNNING_NAMES, "each running process got a freeze command, g
 
 -- ── every system unit goes out in one invocation ──
 
--- polkit retains an administrator's answer against the subject that gave it, and the
--- subject systemd reports is the calling systemctl process. One process per unit is one
--- subject per unit, so nothing is reused and the user answers a dialog per unit -- measured
--- at seven prompts for seven units on a real machine. A single invocation prompts once.
+-- Measured on a real machine: a systemctl process per unit costs a password dialog per
+-- unit, and so does one systemctl process naming every unit, because systemctl issues its
+-- StopUnit calls in parallel and none of the polkit checks can reuse an authorisation that
+-- does not exist yet. Elevating the exec once through pkexec is what makes it one dialog,
+-- so the test is that exactly one privileged command leaves the plugin.
 local privileged = {}
 for _, command in ipairs(mock.commands) do
     if isPrivileged(command) then
@@ -183,7 +187,8 @@ for _, unit in ipairs(ACTIVE_UNITS) do
     assert(privileged[1]:find("'" .. unit .. "'", 1, true),
         unit .. " missing from the batch: " .. privileged[1])
 end
-assert(privileged[1]:find("^systemctl stop "), "batched as a stop: " .. privileged[1])
+assert(privileged[1]:find("stop ", 1, true), "batched as a stop: " .. privileged[1])
+assert(privileged[1]:find("^pkexec /"), "elevated once through pkexec: " .. privileged[1])
 
 -- Inactive units stay out of it: a batch that names them would prompt for work with
 -- nothing to do.
@@ -240,7 +245,8 @@ for _, command in ipairs(mock.commands) do
 end
 assert(#restarts == 1,
     "one invocation restarts every unit, got " .. #restarts .. ": " .. table.concat(restarts, " | "))
-assert(restarts[1]:find("^systemctl start "), "batched as a start: " .. restarts[1])
+assert(restarts[1]:find("start ", 1, true), "batched as a start: " .. restarts[1])
+assert(restarts[1]:find("^pkexec /"), "elevated once through pkexec: " .. restarts[1])
 for _, unit in ipairs(ACTIVE_UNITS) do
     assert(restarts[1]:find("'" .. unit .. "'", 1, true), unit .. " not restarted: " .. restarts[1])
 end

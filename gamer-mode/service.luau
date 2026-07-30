@@ -513,25 +513,53 @@ function M.actionOf(target)
     return target.action == "freeze" and "freeze" or "stop"
 end
 
--- systemctl takes many units per invocation, and that is the whole difference between one
--- password prompt and one per unit.
+-- Authorising system units once, rather than once per unit.
 --
--- polkit's auth_admin_keep retains the authorisation against the subject that answered the
--- prompt, and the subject systemd reports is the calling `systemctl` process. Seven units
--- through seven processes are seven subjects, so nothing is ever reused: measured as seven
--- dialogs, one per unit. Through a single process the first unit prompts and the remaining
--- StopUnit calls hit the retained authorisation.
+-- Two approaches were measured on a live machine and both cost one password prompt per
+-- unit -- seven units, seven dialogs:
+--
+--   * one `systemctl` process per unit. polkit's auth_admin_keep retains an authorisation
+--     against the subject that gave it, and the subject systemd reports is the calling
+--     process, so seven processes are seven subjects with nothing to reuse.
+--   * one `systemctl` process naming all seven units. systemctl issues its StopUnit calls
+--     in parallel, so all seven polkit checks are outstanding before any of them has an
+--     answer, and again none can reuse a retained authorisation.
+--
+-- pkexec authorises the exec itself, once, and systemd performs no polkit check at all for
+-- a caller running as root. That makes one dialog a property of the design rather than a
+-- hoped-for cache hit. org.freedesktop.policykit.exec is auth_admin with no keep, so each
+-- pkexec prompts -- which is why a verb's units all go in one invocation. The built-in
+-- targets only ever stop system units, never freeze them, so an enable and a disable are
+-- one prompt each; a config that mixes both verbs pays one per verb.
 --
 -- Batching costs per-unit exit codes. It is affordable because nothing depends on them:
 -- the snapshot records what a target was doing before, not whether its stop returned zero,
 -- and restore probes live state rather than trusting a recorded outcome. systemctl still
 -- names each unit it could not act on, and that stderr is logged whole.
-local BATCH_VERBS = {
-    stop = "systemctl stop",
-    start = "systemctl start",
-    freeze = "systemctl kill --kill-whom=all -s SIGSTOP",
-    thaw = "systemctl kill --kill-whom=all -s SIGCONT",
+local BATCH_ARGS = {
+    stop = "stop",
+    start = "start",
+    freeze = "kill --kill-whom=all -s SIGSTOP",
+    thaw = "kill --kill-whom=all -s SIGCONT",
 }
+
+-- pkexec resolves a bare program name against a sanitised PATH, so the absolute path is
+-- the dependable form. init() replaces these from the live system.
+M.systemctlPath = "/usr/bin/systemctl"
+M.canElevate = true
+
+local function batchPrefix(verb)
+    local args = BATCH_ARGS[verb]
+    if not args then
+        return nil
+    end
+    if not M.canElevate then
+        -- No pkexec: fall back to asking systemd directly. It still works, at the cost of
+        -- the prompt-per-unit behaviour described above.
+        return "systemctl " .. args
+    end
+    return "pkexec " .. M.systemctlPath .. " " .. args
+end
 
 -- Timers have no process to signal, so they can only be stopped and started.
 local function batchable(verb, kind)
@@ -547,7 +575,7 @@ end
 -- Returns the batched command and the targets it covers, so the caller can report against
 -- exactly what went in. Targets refused by safeMatch are left out of both.
 function M.batchCmd(verb, targets)
-    local prefix = BATCH_VERBS[verb]
+    local prefix = batchPrefix(verb)
     if not prefix then
         return nil, {}
     end
@@ -1422,6 +1450,24 @@ function M.init()
     if directory then
         noctalia.mkdirAll(directory)
     end
+
+    -- Resolve elevation before anything can need it. Without pkexec the plugin still works
+    -- through systemd's own polkit check, so this downgrades rather than disables.
+    M.canElevate = noctalia.commandExists("pkexec") == true
+    if not M.canElevate then
+        noctalia.log(
+            "gamermode: pkexec not found, so system units will ask for a password once per "
+                .. "unit instead of once per batch"
+        )
+    else
+        run("command -v systemctl", function(result)
+            local path = result and trim(result.stdout) or ""
+            if path ~= "" and path:sub(1, 1) == "/" then
+                M.systemctlPath = path
+            end
+        end)
+    end
+
     -- Publish immediately so a panel opened before the first poll is not empty.
     M.publishGameMode()
     M.publishMetrics()

@@ -113,6 +113,7 @@ patterns do not match. The plugin quotes every value for the shell and refuses a
 | | `stop` | `freeze` |
 | --- | --- | --- |
 | Mechanism | `pkill` / `systemctl stop` / `docker stop` | `SIGSTOP` / `docker pause` |
+| Probes | read-only, never elevated | read-only, never elevated |
 | Frees RAM | Yes | No, pages stay resident |
 | Frees VRAM | Yes | No |
 | Halts CPU use | Yes | Yes |
@@ -134,9 +135,9 @@ and hurts a chat app.
 | --- | --- | --- | --- | --- | --- |
 | `process` | `pgrep -x` | `pkill -x` | none, see below | `pkill -STOP -x` | `pkill -CONT -x` |
 | `user-service` | `systemctl --user is-active` | `systemctl --user stop` | `systemctl --user start` | `systemctl --user kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
-| `system-service` | `systemctl is-active` | `systemctl stop` | `systemctl start` | `systemctl kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
+| `system-service` | `systemctl is-active` | `pkexec systemctl stop` | `pkexec systemctl start` | `pkexec systemctl kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
 | `user-timer` | `systemctl --user is-active` | `systemctl --user stop` | `systemctl --user start` | invalid | invalid |
-| `system-timer` | `systemctl is-active` | `systemctl stop` | `systemctl start` | invalid | invalid |
+| `system-timer` | `systemctl is-active` | `pkexec systemctl stop` | `pkexec systemctl start` | invalid | invalid |
 | `container` | `docker inspect -f '{{.State.Running}}'` | `docker stop` | `docker start` | `docker pause` | `docker unpause` |
 
 ### Timers
@@ -185,26 +186,31 @@ use Feral GameMode's `start=` and `end=` script hooks in `gamemode.ini`.
 
 ### System units ask for a password once
 
-Stopping or starting a system unit needs authorisation. The plugin calls
-`systemctl` with no sudo: the call reaches systemd over D-Bus, systemd asks
-polkit, and polkit asks your desktop's authentication agent to prompt.
+Stopping or starting a system unit needs authorisation. The plugin runs all the
+units of one operation through a single `pkexec /usr/bin/systemctl` call, which
+asks once and then does the whole batch as root.
 
-`org.freedesktop.systemd1.manage-units` resolves to `auth_admin_keep` for an
-active local session, which asks an administrator once and then retains the
-answer. It retains it against the subject that gave it, and the subject systemd
-reports is the calling `systemctl` process, so a unit per process is a prompt per
-unit. All units of a kind therefore go out in one `systemctl` invocation: the
-first prompts, the rest reuse the retained authorisation. One dialog per enable,
-one per disable, and two minutes allowed to answer it.
+Two simpler approaches were measured first and each cost a password prompt per
+unit, seven units meaning seven dialogs:
 
-Check what your machine will do:
+- One `systemctl` per unit. polkit's `auth_admin_keep` retains an authorisation
+  against the subject that gave it, and the subject systemd reports is the
+  calling process, so seven processes are seven subjects with nothing to reuse.
+- One `systemctl` naming all seven units. systemctl issues its `StopUnit` calls
+  in parallel, so every polkit check is outstanding before any of them has an
+  answer, and again nothing can reuse an authorisation that does not exist yet.
 
-```sh
-pkaction --action-id org.freedesktop.systemd1.manage-units --verbose
-```
+`org.freedesktop.policykit.exec` is `auth_admin` with no retention, so each
+`pkexec` prompts. The built-in targets only ever stop system units and never
+freeze them, so an enable costs one prompt and a disable costs one. A custom
+target list that mixes stops and freezes pays one prompt per operation.
 
-You need an authentication agent running for the prompt to appear at all. Most
-desktops start one; standalone compositors often do not. Check with:
+Without `pkexec` the plugin falls back to calling `systemctl` directly, which
+still works through systemd's own polkit check at the cost of the prompt-per-unit
+behaviour. It logs the downgrade at startup.
+
+You need an authentication agent running for any prompt to appear. Most desktops
+start one; standalone compositors often do not. Check with:
 
 ```sh
 pgrep -af 'polkit.*agent'
@@ -214,9 +220,9 @@ If nothing is listed, install one such as `mate-polkit`, `polkit-gnome` or
 `hyprpolkitagent` and start it with your session. Without an agent the calls fail
 and each one is logged.
 
-To skip the prompt, add a polkit rule granting the units you target. Scope it to
-those units: a blanket rule lets anything running as you stop or start any system
-unit. In `/etc/polkit-1/rules.d/49-gamermode.rules`:
+To skip the prompt entirely, grant the units you target. Scope the rule to those
+units: a blanket rule lets anything running as you stop or start any system unit.
+In `/etc/polkit-1/rules.d/49-gamermode.rules`:
 
 ```javascript
 polkit.addRule(function (action, subject) {

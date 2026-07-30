@@ -59,6 +59,33 @@ for _, build in ipairs({ svc.stopCmd, svc.startCmd, svc.freezeCmd, svc.thawCmd, 
     end
 end
 
+-- Batched system-unit commands elevate once through pkexec, because neither a process per
+-- unit nor one process naming every unit avoids a prompt per unit.
+local units = {
+    { kind = "system-service", match = "a.service" },
+    { kind = "system-timer", match = "b.timer" },
+}
+local batched = svc.batchCmd("stop", units)
+assert(batched == "pkexec /usr/bin/systemctl stop 'a.service' 'b.timer'", "batched stop, got " .. tostring(batched))
+assert(svc.batchCmd("start", units) == "pkexec /usr/bin/systemctl start 'a.service' 'b.timer'", "batched start")
+
+-- Timers have no process to signal, so they are left out of a freeze rather than making
+-- systemctl fail the whole batch.
+local frozen, covered = svc.batchCmd("freeze", units)
+assert(frozen == "pkexec /usr/bin/systemctl kill --kill-whom=all -s SIGSTOP 'a.service'", "freeze skips timers, got " .. tostring(frozen))
+assert(#covered == 1 and covered[1].match == "a.service", "covered reports what actually went in")
+
+-- User units and processes never enter a batch: they need no authorisation, and batching
+-- them would only blur which one failed.
+assert(svc.batchCmd("stop", { { kind = "user-service", match = "u.service" } }) == nil, "user units are not batched")
+assert(svc.batchCmd("stop", { { kind = "process", match = "p" } }) == nil, "processes are not batched")
+assert(svc.batchCmd("bogus", units) == nil, "unknown verb builds nothing")
+
+-- Without pkexec the plugin still works, at the cost of the prompt-per-unit behaviour.
+svc.canElevate = false
+assert(svc.batchCmd("stop", units) == "systemctl stop 'a.service' 'b.timer'", "falls back to plain systemctl")
+svc.canElevate = true
+
 -- Which kinds need authorisation, and so must be serialised behind one password prompt.
 assert(svc.needsPrivilege("system-service"), "system services need privilege")
 assert(svc.needsPrivilege("system-timer"), "system timers need privilege")
