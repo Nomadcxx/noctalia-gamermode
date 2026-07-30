@@ -112,8 +112,13 @@ function M.suspendProfiles()
 end
 
 -- The chosen profile travels with the enable command rather than changing the setting,
--- because a plugin reads its own settings and cannot write them. The choice therefore
--- lasts as long as the panel does, and starts from whatever the setting says.
+-- because a plugin reads its own settings and cannot write them. It starts from whatever
+-- the setting says and then lives as long as the loaded panel entry, which outlives any
+-- one opening of the panel but not a shell restart or a plugin reload.
+--
+-- The bar's right-click toggle cannot see this: the widget is a separate entry with its
+-- own state, so it enables the profile named in the settings. Selecting here and then
+-- right-clicking the icon is the one path where the two disagree.
 local selectedProfileName = nil
 
 function M.selectedProfile()
@@ -195,6 +200,9 @@ local function header()
         ui.glyph({ name = "device-gamepad-2", size = 18, color = gameMode.enabled and "primary" or "on_surface" }),
         ui.label({ text = tr("panel.title"), fontSize = 16, fontWeight = "bold", flexGrow = 1 }),
         toggleButton(),
+        -- The panel also dismisses on an outside click, but a visible control is the one
+        -- people look for, and every other panel in the shell has one.
+        ui.button({ glyph = "close", variant = "ghost", tooltip = tr("panel.close"), onClick = "onCloseClicked" }),
     })
 end
 

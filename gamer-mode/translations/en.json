@@ -46,30 +46,31 @@
     }
   },
   "panel": {
-    "title": "Gamer Mode",
-    "enable": "Enable",
+    "close": "Close",
     "disable": "Disable",
-    "working": "Working...",
-    "performance": "Performance",
-    "power_profile": "Power profile",
-    "power_unavailable": "powerprofilesctl unavailable",
-    "mode_profile": "Suspend profile",
-    "suspended": "Suspended",
-    "nothing_suspended": "Nothing suspended",
+    "enable": "Enable",
     "frozen": "frozen",
-    "stopped": "stopped",
     "gpu_unsupported": "GPU metrics unsupported",
     "metrics_unavailable": "System metrics unavailable",
-    "settings": "Settings",
-    "profiles": {
-      "light": "Light",
-      "heavy": "Heavy"
-    },
+    "mode_profile": "Suspend profile",
+    "nothing_suspended": "Nothing suspended",
+    "performance": "Performance",
     "power": {
       "power-saver": "Power saver",
       "balanced": "Balanced",
       "performance": "Performance"
-    }
+    },
+    "power_profile": "Power profile",
+    "power_unavailable": "powerprofilesctl unavailable",
+    "profiles": {
+      "light": "Light",
+      "heavy": "Heavy"
+    },
+    "settings": "Settings",
+    "stopped": "stopped",
+    "suspended": "Suspended",
+    "title": "Gamer Mode",
+    "working": "Working..."
   },
   "notify": {
     "enabled_title": "Gamer mode enabled",

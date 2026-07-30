@@ -50,6 +50,43 @@ for key in manifest:gmatch("description_key = \"([^\"]+)\"") do
 end
 assert(checked >= 18, "expected the manifest to declare translated settings, saw " .. checked)
 assert(lookup("panel.title") and lookup("notify.enabled_title"), "panel/notify strings missing")
+
+-- Every tr()/trp() key in the plugin sources, not just the ones the manifest declares.
+-- A missing key renders as the raw key in the UI and nothing else catches it: the panel
+-- suite drives the render but asserts on structure, and tr() returning its argument means
+-- the label is still a non-empty string.
+local sources = { "service", "panel", "widget" }
+local runtime = 0
+for _, name in ipairs(sources) do
+    local file = assert(io.open("gamer-mode/" .. name .. ".luau"))
+    local code = file:read("*a")
+    file:close()
+    for call, key in code:gmatch("(tr[p]?)%(\"([%a_.]+)\"") do
+        -- `tr("panel.profiles." .. name)` leaves a trailing dot: the prefix names a table
+        -- of variants, so check that instead of a string at the prefix itself.
+        if key:sub(-1) == "." then
+            local node = translations
+            for part in key:sub(1, -2):gmatch("[^.]+") do
+                node = type(node) == "table" and node[part] or nil
+            end
+            assert(type(node) == "table" and next(node) ~= nil,
+                name .. ".luau: " .. call .. "() builds keys under " .. key .. " but it holds no variants")
+        elseif call == "trp" then
+            -- Plurals resolve to a table of forms rather than a string, and both forms
+            -- have to exist or one count renders as the raw key.
+            local node = translations
+            for part in key:gmatch("[^.]+") do
+                node = type(node) == "table" and node[part] or nil
+            end
+            assert(type(node) == "table" and type(node.one) == "string" and type(node.other) == "string",
+                name .. ".luau: trp() needs `one` and `other` forms at " .. key)
+        else
+            assert(lookup(key), name .. ".luau: " .. call .. "() uses an untranslated key: " .. key)
+        end
+        runtime = runtime + 1
+    end
+end
+assert(runtime >= 20, "expected the sources to translate their strings, saw " .. runtime)
 '
 
 # Panel cross-field rules, copied from the shell's own manifest validator
