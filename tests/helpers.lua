@@ -361,8 +361,16 @@ function helpers.newNoctalia(opts)
         table.insert(mock.notifications, { title = title, body = body, kind = "error" })
     end
 
+    mock.setUpdateInterval = function(intervalMs)
+        mock.updateIntervalMs = intervalMs
+    end
+
     mock.tr = function(key)
         return key
+    end
+
+    mock.trp = function(key, count)
+        return key .. ":" .. tostring(count)
     end
 
     mock.trim = function(value)

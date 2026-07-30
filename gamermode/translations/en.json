@@ -72,7 +72,15 @@
   "notify": {
     "enabled_title": "Gamer mode enabled",
     "disabled_title": "Gamer mode disabled",
+    "suspended_count": {
+      "one": "Suspended 1 target.",
+      "other": "Suspended {count} targets."
+    },
+    "restored_count": {
+      "one": "Restored 1 target.",
+      "other": "Restored {count} targets."
+    },
     "nothing_suspended": "No background targets were running.",
-    "failed_title": "Gamer mode failed"
+    "nothing_restored": "Nothing needed restarting."
   }
 }
