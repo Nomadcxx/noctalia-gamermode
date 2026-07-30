@@ -80,7 +80,7 @@ entry = "service.luau"
 id = "main"
 entry = "panel.luau"
 width = 560
-height = 720
+height = 820
 placement = "attached"
 position = "auto"
 # "on_demand" takes keyboard focus only when you click inside the panel, so opening it
