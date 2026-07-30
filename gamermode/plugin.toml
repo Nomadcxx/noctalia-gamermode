@@ -21,10 +21,10 @@ key = "click_action"
 type = "select"
 label_key = "settings.click_action.label"
 description_key = "settings.click_action.description"
-default = "toggle"
+default = "open_panel"
 options = [
-  { value = "toggle", label_key = "settings.click_action.options.toggle" },
   { value = "open_panel", label_key = "settings.click_action.options.open_panel" },
+  { value = "toggle", label_key = "settings.click_action.options.toggle" },
 ]
 
 [[setting]]

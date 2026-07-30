@@ -9,10 +9,10 @@
     },
     "click_action": {
       "label": "Left-click action",
-      "description": "What left-clicking the bar icon does.",
+      "description": "What left-clicking the bar icon does. Right-click always toggles gamer mode.",
       "options": {
-        "toggle": "Toggle gamer mode",
-        "open_panel": "Open panel"
+        "open_panel": "Open panel",
+        "toggle": "Toggle gamer mode"
       }
     },
     "poll_interval": {

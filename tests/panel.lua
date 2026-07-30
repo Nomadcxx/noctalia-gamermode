@@ -140,7 +140,9 @@ for _, node in ipairs(nodes) do
 end
 assert(byKind.progress == 4, "a progress bar per metric row, got " .. tostring(byKind.progress))
 assert(byKind.button and byKind.button >= 2, "master toggle and settings buttons present")
-assert(byKind.select == 1, "a power profile select is present")
+-- While gamer mode runs the profile is fixed by the session, so only the power select
+-- shows. The suspend selector appears when it is off, asserted further down.
+assert(byKind.select == 1, "only the power select while enabled, got " .. tostring(byKind.select))
 
 -- Handlers are named globals: the ui bridge resolves onClick/onChange by name and
 -- cannot call a Lua closure.
@@ -190,6 +192,35 @@ mock.published.command = nil
 onPowerProfileChanged(99)
 assert(mock.published.command == nil, "out-of-range index is ignored")
 
+-- ── suspend profile selection ──
+
+-- A plugin reads its own settings and cannot write them, so choosing a profile in the
+-- panel travels with the enable command instead of changing the setting.
+assert(type(p.suspendProfiles) == "function", "suspendProfiles exposed")
+local profiles = p.suspendProfiles()
+assert(#profiles == 2 and profiles[1] == "light" and profiles[2] == "heavy", "light then heavy")
+
+-- The selection starts on the configured profile.
+assert(p.selectedProfile() == "light", "starts on the configured profile, got " .. tostring(p.selectedProfile()))
+
+-- Picking heavy makes the toggle enable heavy, without touching the setting.
+onSuspendProfileChanged(1)
+assert(p.selectedProfile() == "heavy", "selection updated")
+mock.published.command = nil
+onToggleGameMode()
+assert(mock.published.command.profile == "heavy", "the toggle carries the chosen profile")
+assert(mock.config.profile == "light", "the setting itself is untouched")
+
+-- Back to light.
+onSuspendProfileChanged(0)
+mock.published.command = nil
+onToggleGameMode()
+assert(mock.published.command.profile == "light", "light selected again")
+
+-- An out-of-range index leaves the selection alone rather than picking a wrong profile.
+onSuspendProfileChanged(42)
+assert(p.selectedProfile() == "light", "out-of-range suspend index ignored")
+
 onOpenSettings()
 assert(mock.settingsOpened == true, "settings button opens settings")
 
@@ -220,6 +251,16 @@ end
 assert(sawEnable, "offers Enable while off")
 assert(not sawSuspendedHeading, "no suspended section while off")
 
+-- With gamer mode off the suspend profile becomes selectable, so one press both picks the
+-- profile and applies it.
+local selectsWhileOff = 0
+for _, node in ipairs(nodes) do
+    if node.kind == "select" then
+        selectsWhileOff = selectsWhileOff + 1
+    end
+end
+assert(selectsWhileOff == 2, "power and suspend selects while off, got " .. selectsWhileOff)
+
 -- While a flow is in flight the button is disabled so a double click cannot race.
 noctalia.state.set("game_mode", { enabled = false, busy = true, profile = "light", suspended = {} })
 nodes = flatten(rendered)
@@ -235,17 +276,23 @@ assert(busyButton.spec.enabled == false, "the toggle is disabled while busy")
 -- Without powerprofilesctl the select is replaced by an explanation, not left broken.
 noctalia.state.set("power", { available = false, profiles = {} })
 nodes = flatten(rendered)
-local selects, sawUnavailable = 0, false
+local powerSelects, suspendSelects, sawUnavailable = 0, 0, false
 for _, node in ipairs(nodes) do
     if node.kind == "select" then
-        selects = selects + 1
+        if node.spec.onChange == "onPowerProfileChanged" then
+            powerSelects = powerSelects + 1
+        elseif node.spec.onChange == "onSuspendProfileChanged" then
+            suspendSelects = suspendSelects + 1
+        end
     end
     if node.kind == "label" and node.spec.text == "panel.power_unavailable" then
         sawUnavailable = true
     end
 end
-assert(selects == 0, "no power select without powerprofilesctl")
+assert(powerSelects == 0, "no power select without powerprofilesctl")
 assert(sawUnavailable, "explains why the power row is missing")
+-- Losing powerprofilesctl must not take the suspend selector with it.
+assert(suspendSelects == 1, "the suspend profile is still selectable, got " .. suspendSelects)
 
 -- Nil state writes must not break rendering.
 noctalia.state.set("metrics", nil)

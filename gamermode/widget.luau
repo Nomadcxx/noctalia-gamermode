@@ -71,12 +71,20 @@ local function sendCommand(action)
     })
 end
 
+-- Left-click opens the panel by default. A first click should show what the machine is
+-- doing, not suspend a list of programs the user has not read yet.
 function M.onClick()
-    if (noctalia.getConfig("click_action") or "toggle") == "open_panel" then
-        noctalia.togglePanel(PANEL_ID)
-    else
+    if (noctalia.getConfig("click_action") or "open_panel") == "toggle" then
         sendCommand("toggle")
+    else
+        noctalia.togglePanel(PANEL_ID)
     end
+end
+
+-- Right-click always toggles, whatever click_action says, so the one-click path stays
+-- available without opening the panel first.
+function M.onRightClick()
+    sendCommand("toggle")
 end
 
 noctalia.state.watch("metrics", function(value)
@@ -93,6 +101,10 @@ end)
 
 function onClick()
     M.onClick()
+end
+
+function onRightClick()
+    M.onRightClick()
 end
 
 function onConfigChanged()

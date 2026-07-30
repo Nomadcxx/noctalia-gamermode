@@ -774,9 +774,25 @@ local function describeFailure(result)
     return "exit code " .. tostring(result.exitCode)
 end
 
+local VALID_PROFILES = { light = true, heavy = true }
+
 local function configuredProfile()
     local profile = noctalia.getConfig("profile")
     return profile == "heavy" and "heavy" or "light"
+end
+
+-- resolveProfile lets a command name the profile to apply for one session. The panel needs
+-- this because a plugin reads its own settings and cannot write them, so choosing a profile
+-- in the panel has to travel with the enable rather than change the setting.
+local function resolveProfile(override)
+    if override == nil then
+        return configuredProfile()
+    end
+    if VALID_PROFILES[override] then
+        return override
+    end
+    noctalia.log("gamermode: ignoring unknown profile " .. tostring(override))
+    return configuredProfile()
 end
 
 local function autoPerformance()
@@ -979,7 +995,7 @@ local function suspendAll(probed, done)
     end
 end
 
-function M.enable()
+function M.enable(profileOverride)
     if busy then
         return
     end
@@ -993,7 +1009,7 @@ function M.enable()
     busy = true
     M.publishGameMode()
 
-    local profile = configuredProfile()
+    local profile = resolveProfile(profileOverride)
     local targets = M.targetsForProfile(M.parseTargets(noctalia.getConfig("targets")), profile)
 
     local function withPowerBefore(powerBefore)
@@ -1122,11 +1138,13 @@ function M.disable()
     end
 end
 
-function M.toggle()
+-- toggle passes the override through to enable. Turning gamer mode off needs no profile:
+-- the session records which one was applied.
+function M.toggle(profileOverride)
     if M.readSnapshot() then
         M.disable()
     else
-        M.enable()
+        M.enable(profileOverride)
     end
 end
 
@@ -1149,9 +1167,9 @@ function M.handleCommand(command)
 
     local action = command.action
     if action == "toggle" then
-        M.toggle()
+        M.toggle(command.profile)
     elseif action == "enable" then
-        M.enable()
+        M.enable(command.profile)
     elseif action == "disable" then
         M.disable()
     elseif action == "set-power-profile" then

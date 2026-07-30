@@ -222,6 +222,45 @@ assert(mock.published.power.active == "power-saver", "power state republished")
 noctalia.state.set("command", { nonce = 17, action = "set-power-profile", profile = "turbo" })
 assert(powerProfile == "power-saver", "an unsupported profile is refused")
 
+-- ── enabling a chosen profile ──
+
+-- The panel offers a profile per enable, because a plugin can read its own settings and
+-- cannot write them. An enable command may therefore carry a profile that overrides the
+-- configured one for that session.
+helpers.resetDir(DATA_DIR)
+mock.config.profile = "light"
+mock.commands = {}
+noctalia.state.set("command", { nonce = 18, action = "enable", profile = "heavy" })
+assert(mock.published.game_mode.enabled == true, "enabled with an override")
+assert(mock.published.game_mode.profile == "heavy", "override wins over the setting")
+assert(svc.readSnapshot().profile == "heavy", "the session records the profile actually used")
+-- sonarr is heavy-only in this suite's target list, so it proves the heavy set ran.
+assert(helpers.ranCommand(mock, "sonarr.service"), "heavy-only target was probed")
+noctalia.state.set("command", { nonce = 19, action = "disable" })
+
+-- Without an override the configured profile applies.
+mock.commands = {}
+noctalia.state.set("command", { nonce = 20, action = "enable" })
+assert(mock.published.game_mode.profile == "light", "no override falls back to the setting")
+assert(not helpers.ranCommand(mock, "sonarr.service"), "heavy-only target skipped under light")
+noctalia.state.set("command", { nonce = 21, action = "disable" })
+
+-- A bogus override is refused rather than silently treated as one of the real profiles.
+mock.commands = {}
+local logsBeforeOverride = #mock.logs
+noctalia.state.set("command", { nonce = 22, action = "enable", profile = "ludicrous" })
+assert(mock.published.game_mode.enabled == true, "enable still completes")
+assert(mock.published.game_mode.profile == "light", "bogus override falls back to the setting")
+assert(#mock.logs > logsBeforeOverride, "the bogus override is logged")
+noctalia.state.set("command", { nonce = 23, action = "disable" })
+
+-- toggle carries an override too, so one panel button can enable a chosen profile.
+mock.commands = {}
+noctalia.state.set("command", { nonce = 24, action = "toggle", profile = "heavy" })
+assert(mock.published.game_mode.profile == "heavy", "toggle honours the override")
+noctalia.state.set("command", { nonce = 25, action = "toggle" })
+assert(mock.published.game_mode.enabled == false, "toggle back off ignores the override")
+
 -- ── failure handling ──
 
 -- A stop that fails (no NOPASSWD rule for a system unit, say) is logged and the rest of
@@ -231,12 +270,12 @@ mock.config.profile = "heavy"
 live["sonarr.service"] = "active"
 live["radarr.service"] = "inactive"
 logsBefore = #mock.logs
-noctalia.state.set("command", { nonce = 18, action = "enable" })
+noctalia.state.set("command", { nonce = 26, action = "enable" })
 assert(mock.published.game_mode.enabled == true, "enable completes despite a failing stop")
 assert(#mock.logs > logsBefore, "the failing stop is logged")
 assert(helpers.ranCommand(mock, "sudo -n systemctl stop 'sonarr.service'"), "attempted the system unit stop")
 assert(not helpers.ranCommand(mock, "sudo -n systemctl stop 'radarr.service'"), "inactive system unit not stopped")
-noctalia.state.set("command", { nonce = 19, action = "disable" })
+noctalia.state.set("command", { nonce = 27, action = "disable" })
 assert(mock.published.game_mode.enabled == false, "disabled again")
 failures = {}
 mock.config.profile = "light"
@@ -245,7 +284,7 @@ mock.config.profile = "light"
 mock.startFail = function(command)
     return command:find("pgrep", 1, true) ~= nil
 end
-noctalia.state.set("command", { nonce = 20, action = "enable" })
+noctalia.state.set("command", { nonce = 28, action = "enable" })
 assert(mock.published.game_mode.enabled == true, "enable completes when a probe cannot start")
 assert(mock.published.game_mode.busy == false, "flow is not left busy")
 local unstarted = svc.readSnapshot()
@@ -257,7 +296,7 @@ for _, entry in ipairs(unstarted.targets) do
 end
 assert(processWas == "down", "a probe that could not run records down, never a guess")
 mock.startFail = nil
-noctalia.state.set("command", { nonce = 21, action = "disable" })
+noctalia.state.set("command", { nonce = 29, action = "disable" })
 
 -- ── metrics polling ──
 

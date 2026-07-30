@@ -25,9 +25,12 @@ panel hides its power row and the toggle still works.
 
 ## Usage
 
-Left-click the widget to toggle gamer mode, or set **Left-click action** to
-`open_panel` to open the panel instead. The glyph takes the accent colour while
-gamer mode runs.
+| Gesture | Action |
+| --- | --- |
+| Left-click | Opens the panel. Set **Left-click action** to `toggle` to toggle instead. |
+| Right-click | Toggles gamer mode, whatever **Left-click action** says. |
+
+The glyph takes the accent colour while gamer mode runs.
 
 The tooltip carries the live readings:
 
@@ -35,8 +38,14 @@ The tooltip carries the live readings:
 CPU 25% 59°C | RAM 10.9G | GPU 18% 61°C | VRAM 2.5G
 ```
 
-The panel shows a bar per reading, the power profile selector, the active suspend
-profile, and what the plugin has suspended.
+The panel shows a bar per reading, the power profile selector, the suspend
+profile selector, and what the plugin has suspended.
+
+Pick `light` or `heavy` in the panel and press Enable, and that profile applies
+for the session. A plugin reads its own settings and cannot write them, so the
+choice rides along with the enable rather than changing the **Gamer mode
+profile** setting. While gamer mode runs the selector gives way to a label,
+because the session already fixed the profile. To change it, disable first.
 
 Drive it from a shell or a keybind:
 
@@ -57,7 +66,7 @@ noctalia msg panel-toggle nomadcxx/gamermode:main
 | Setting | Default | Description |
 | --- | --- | --- |
 | Bar icon | `device-gamepad-2` | Glyph shown in the bar. Names a glyph from the shell's registry. |
-| Left-click action | `toggle` | Toggles gamer mode or opens the panel. |
+| Left-click action | `open_panel` | Opens the panel or toggles gamer mode. Right-click toggles either way. |
 | Poll interval | `3` | Seconds between metric updates: 2, 3, or 5. |
 | Gamer mode profile | `light` | Selects which target profile a toggle applies. |
 | Auto performance profile | On | Switches to the `performance` power profile while gamer mode runs, then hands back the previous one. |
@@ -298,9 +307,13 @@ still be suspended.
   same reason.
 - No I/O weighting for user units. cgroup v2 delegates `cpu`, `memory`, and
   `pids` to the user manager, and not `io`.
-- Plugin API 19 has no hover callback for bar widgets, so the tooltip carries the
-  readings instead of a hover panel.
+- The bar widget carries the readings in its tooltip. Plugin API 19 does hand a
+  widget `onHover(entered)`, so a richer hover surface is possible and is not
+  built.
 - The panel shows no per-core CPU breakdown and no top-process list.
+- Nothing places the widget on your bar for you. The manifest has no field for a
+  default bar section, and a plugin can read its settings but not write them, so
+  bar layout stays yours. Add it under **Settings → Bar**.
 - VRAM appears where the shell reports it, which means NVML on NVIDIA.
 - The plugin toggles no compositor effects. Animations, blur, and shadows belong
   to your compositor's own config.

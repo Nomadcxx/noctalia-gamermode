@@ -124,6 +124,37 @@ onClick()
 assert(mock.toggledPanel == "nomadcxx/gamermode:main", "opens the panel, got " .. tostring(mock.toggledPanel))
 assert(mock.published.command == nil, "no command sent when opening the panel")
 
+-- Left-click opens the panel by default, so a first-time user sees the metrics before
+-- anything gets suspended.
+mock.config.click_action = nil
+mock.toggledPanel = nil
+mock.published.command = nil
+onClick()
+assert(mock.toggledPanel == "nomadcxx/gamermode:main", "an unset click_action opens the panel")
+assert(mock.published.command == nil, "the default click suspends nothing")
+
+-- Right-click toggles gamer mode whatever click_action says, so the fast path is always
+-- available.
+for _, setting in ipairs({ "open_panel", "toggle" }) do
+    mock.config.click_action = setting
+    mock.toggledPanel = nil
+    mock.published.command = nil
+    onRightClick()
+    local right = mock.published.command
+    assert(type(right) == "table" and right.action == "toggle",
+        "right-click toggles with click_action=" .. setting)
+    assert(type(right.nonce) == "number", "right-click command carries a nonce")
+    assert(mock.toggledPanel == nil, "right-click does not open the panel")
+end
+
+-- Left and right click draw nonces from the same counter, so a click of either kind is
+-- never mistaken for a replay of the other.
+mock.config.click_action = "toggle"
+onClick()
+local afterLeft = mock.published.command.nonce
+onRightClick()
+assert(mock.published.command.nonce > afterLeft, "right-click after left-click uses a fresh nonce")
+
 -- Config changes re-render with the new glyph.
 mock.config.glyph = "flame"
 onConfigChanged()

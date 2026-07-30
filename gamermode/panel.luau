@@ -103,6 +103,47 @@ function M.powerProfileAt(index)
     return profiles[position]
 end
 
+-- ── suspend profile ──
+
+local SUSPEND_PROFILES = { "light", "heavy" }
+
+function M.suspendProfiles()
+    return { SUSPEND_PROFILES[1], SUSPEND_PROFILES[2] }
+end
+
+-- The chosen profile travels with the enable command rather than changing the setting,
+-- because a plugin reads its own settings and cannot write them. The choice therefore
+-- lasts as long as the panel does, and starts from whatever the setting says.
+local selectedProfileName = nil
+
+function M.selectedProfile()
+    if selectedProfileName then
+        return selectedProfileName
+    end
+    local configured = noctalia.getConfig("profile")
+    return configured == "heavy" and "heavy" or "light"
+end
+
+function M.selectSuspendProfile(index)
+    local name = SUSPEND_PROFILES[(tonumber(index) or -1) + 1]
+    if not name then
+        noctalia.log("gamermode: ignoring an out-of-range suspend profile selection")
+        return false
+    end
+    selectedProfileName = name
+    return true
+end
+
+local function selectedSuspendIndex()
+    local current = M.selectedProfile()
+    for index, name in ipairs(SUSPEND_PROFILES) do
+        if name == current then
+            return index - 1
+        end
+    end
+    return 0
+end
+
 local function selectedPowerIndex()
     for index, profile in ipairs(power.profiles or {}) do
         if profile == power.active then
@@ -172,12 +213,27 @@ local function powerRow()
     })
 end
 
--- The suspend profile is a plugin setting, and plugins cannot write their own settings,
--- so it is shown read-only with a route to the settings window.
+-- While gamer mode runs, the profile in force is whatever the session recorded, so the
+-- selector gives way to a plain label. Picking a different profile means disabling first.
 local function modeProfileRow()
+    if gameMode.enabled then
+        return ui.row({ align = "center", gap = 8 }, {
+            ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = 110 }),
+            ui.label({ text = tr("panel.profiles." .. tostring(gameMode.profile or "light")), flexGrow = 1 }),
+        })
+    end
+    local options = {}
+    for index, name in ipairs(M.suspendProfiles()) do
+        options[index] = tr("panel.profiles." .. name)
+    end
     return ui.row({ align = "center", gap = 8 }, {
         ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = 110 }),
-        ui.label({ text = tr("panel.profiles." .. tostring(gameMode.profile or "light")), flexGrow = 1 }),
+        ui.select({
+            options = options,
+            selectedIndex = selectedSuspendIndex(),
+            flexGrow = 1,
+            onChange = "onSuspendProfileChanged",
+        }),
     })
 end
 
@@ -266,8 +322,16 @@ function onOpen()
     render()
 end
 
+-- The command carries the chosen profile so one button both picks and applies. Disabling
+-- ignores it: the session already records which profile was in force.
 function onToggleGameMode()
-    sendCommand("toggle")
+    sendCommand("toggle", { profile = M.selectedProfile() })
+end
+
+function onSuspendProfileChanged(index)
+    if M.selectSuspendProfile(index) then
+        render()
+    end
 end
 
 function onPowerProfileChanged(index)
