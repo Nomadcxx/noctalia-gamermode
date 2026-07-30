@@ -31,7 +31,7 @@ assert(
     "stop user service"
 )
 assert(
-    svc.stopCmd({ kind = "system-service", match = "a.service" }) == "sudo -n systemctl stop 'a.service'",
+    svc.stopCmd({ kind = "system-service", match = "a.service" }) == "systemctl stop 'a.service'",
     "stop system service"
 )
 assert(svc.stopCmd({ kind = "container", match = "x" }) == "docker stop 'x'", "stop container")
@@ -43,16 +43,29 @@ assert(
     "start user service"
 )
 assert(
-    svc.startCmd({ kind = "system-service", match = "a.service" }) == "sudo -n systemctl start 'a.service'",
+    svc.startCmd({ kind = "system-service", match = "a.service" }) == "systemctl start 'a.service'",
     "start system service"
 )
 assert(svc.startCmd({ kind = "container", match = "x" }) == "docker start 'x'", "start container")
 assert(svc.startCmd({ kind = "process", match = "gslapper" }) == nil, "processes have no generic start")
 
--- System-service writes go through `sudo -n`, which fails immediately rather than
--- prompting for a password from a bar click.
-assert(svc.stopCmd({ kind = "system-service", match = "a" }):find("sudo -n ", 1, true) == 1, "stop uses sudo -n")
-assert(svc.startCmd({ kind = "system-service", match = "a" }):find("sudo -n ", 1, true) == 1, "start uses sudo -n")
+-- No builder shells out to sudo. systemctl reaches systemd over D-Bus and lets polkit ask
+-- the desktop's authentication agent, which can actually prompt; `sudo -n` cannot, so it
+-- failed outright on every machine without a NOPASSWD rule.
+for _, build in ipairs({ svc.stopCmd, svc.startCmd, svc.freezeCmd, svc.thawCmd, svc.probeCmd }) do
+    for _, kind in ipairs({ "system-service", "system-timer", "user-service", "process", "container" }) do
+        local command = build({ kind = kind, match = "a" })
+        assert(not (command and command:find("sudo", 1, true)), "no sudo in: " .. tostring(command))
+    end
+end
+
+-- Which kinds need authorisation, and so must be serialised behind one password prompt.
+assert(svc.needsPrivilege("system-service"), "system services need privilege")
+assert(svc.needsPrivilege("system-timer"), "system timers need privilege")
+assert(not svc.needsPrivilege("user-service"), "user units are the caller's own")
+assert(not svc.needsPrivilege("user-timer"), "user timers are the caller's own")
+assert(not svc.needsPrivilege("process"), "signalling your own process needs nothing")
+assert(not svc.needsPrivilege("container"), "docker group membership covers containers")
 
 -- Unknown kinds build nothing.
 assert(svc.probeCmd({ kind = "bogus", match = "x" }) == nil, "unknown kind probes nothing")

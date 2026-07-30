@@ -265,7 +265,7 @@ assert(mock.published.game_mode.enabled == false, "toggle back off ignores the o
 
 -- A stop that fails (no NOPASSWD rule for a system unit, say) is logged and the rest of
 -- the flow still completes: the session is written so the user can still disable.
-failures = { "sudo -n systemctl stop" }
+failures = { "systemctl stop" }
 mock.config.profile = "heavy"
 live["sonarr.service"] = "active"
 live["radarr.service"] = "inactive"
@@ -273,8 +273,8 @@ logsBefore = #mock.logs
 noctalia.state.set("command", { nonce = 26, action = "enable" })
 assert(mock.published.game_mode.enabled == true, "enable completes despite a failing stop")
 assert(#mock.logs > logsBefore, "the failing stop is logged")
-assert(helpers.ranCommand(mock, "sudo -n systemctl stop 'sonarr.service'"), "attempted the system unit stop")
-assert(not helpers.ranCommand(mock, "sudo -n systemctl stop 'radarr.service'"), "inactive system unit not stopped")
+assert(helpers.ranCommand(mock, "systemctl stop 'sonarr.service'"), "attempted the system unit stop")
+assert(not helpers.ranCommand(mock, "systemctl stop 'radarr.service'"), "inactive system unit not stopped")
 noctalia.state.set("command", { nonce = 27, action = "disable" })
 assert(mock.published.game_mode.enabled == false, "disabled again")
 failures = {}
@@ -378,7 +378,7 @@ mixed.enable()
 assert(helpers.ranCommand(mixedMock, "pkill -STOP -x 'brave'"), "running freeze target is frozen")
 assert(not helpers.ranCommand(mixedMock, "pkill -x 'brave'"), "freeze target is never killed")
 -- The stop target that was up is stopped.
-assert(helpers.ranCommand(mixedMock, "sudo -n systemctl stop 'nzbget.service'"), "stop target is stopped")
+assert(helpers.ranCommand(mixedMock, "systemctl stop 'nzbget.service'"), "stop target is stopped")
 -- The freeze target that was already down is left alone.
 assert(not helpers.ranCommand(mixedMock, "pkill -STOP -x 'idle-thing'"), "down target is not frozen")
 
@@ -412,7 +412,7 @@ assert(helpers.ranCommand(mixedMock, "pkill -CONT -x 'brave'"), "freeze target t
 assert(not helpers.ranCommand(mixedMock, "pgrep -x 'brave'"), "thaw needs no probe")
 -- Stop targets keep the still-down probe before being started.
 assert(helpers.ranCommand(mixedMock, "systemctl is-active 'nzbget.service'"), "stop target probed")
-assert(helpers.ranCommand(mixedMock, "sudo -n systemctl start 'nzbget.service'"), "stop target started")
+assert(helpers.ranCommand(mixedMock, "systemctl start 'nzbget.service'"), "stop target started")
 -- Nothing touches the target that was already down.
 assert(not helpers.ranCommand(mixedMock, "'idle-thing'"), "already-down target untouched on restore")
 
@@ -427,7 +427,7 @@ mixed.enable()
 mixedMock.commands = {}
 mixedLive["nzbget.service"] = "active" -- the user restarted it during gamer mode
 mixed.disable()
-assert(not helpers.ranCommand(mixedMock, "sudo -n systemctl start 'nzbget.service'"), "manual restart kept")
+assert(not helpers.ranCommand(mixedMock, "systemctl start 'nzbget.service'"), "manual restart kept")
 assert(helpers.ranCommand(mixedMock, "pkill -CONT -x 'brave'"), "freeze target thawed anyway")
 
 print("runtime: passed")

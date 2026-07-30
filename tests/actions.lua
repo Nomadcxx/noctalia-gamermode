@@ -20,18 +20,18 @@ assert(
 )
 assert(
     svc.stopCmd({ kind = "system-timer", match = "fstrim.timer" })
-        == "sudo -n systemctl stop 'fstrim.timer'",
-    "stop system timer needs sudo -n"
+        == "systemctl stop 'fstrim.timer'",
+    "stop system timer"
 )
 assert(
     svc.startCmd({ kind = "system-timer", match = "fstrim.timer" })
-        == "sudo -n systemctl start 'fstrim.timer'",
+        == "systemctl start 'fstrim.timer'",
     "start system timer"
 )
 assert(
     svc.stopCmd({ kind = "user-timer", match = "backup.timer" })
         == "systemctl --user stop 'backup.timer'",
-    "stop user timer needs no sudo"
+    "stop user timer targets the user manager"
 )
 assert(
     svc.startCmd({ kind = "user-timer", match = "backup.timer" })
@@ -73,12 +73,12 @@ assert(
 )
 assert(
     svc.freezeCmd({ kind = "system-service", match = "a.service" })
-        == "sudo -n systemctl kill --kill-whom=all -s SIGSTOP 'a.service'",
+        == "systemctl kill --kill-whom=all -s SIGSTOP 'a.service'",
     "freeze system service"
 )
 assert(
     svc.thawCmd({ kind = "system-service", match = "a.service" })
-        == "sudo -n systemctl kill --kill-whom=all -s SIGCONT 'a.service'",
+        == "systemctl kill --kill-whom=all -s SIGCONT 'a.service'",
     "thaw system service"
 )
 

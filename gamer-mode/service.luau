@@ -457,6 +457,21 @@ function M.probeCmd(target)
     return nil
 end
 
+-- Changing a system unit needs authorisation, and systemctl already knows how to ask for
+-- it: the call goes over D-Bus, systemd asks polkit, and polkit asks the desktop's
+-- authentication agent to prompt. `org.freedesktop.systemd1.manage-units` resolves to
+-- auth_admin_keep for an active local session, so an administrator is prompted once and
+-- the answer is cached for the rest of the batch.
+--
+-- This is why none of the builders below shell out to sudo. `sudo -n` cannot prompt at
+-- all, so on any machine without a NOPASSWD rule -- which is most of them -- every system
+-- target failed and gamer mode quietly did a fraction of its job.
+--
+-- Callers must route these through the privileged lane: see needsPrivilege.
+function M.needsPrivilege(kind)
+    return kind == "system-service" or kind == "system-timer"
+end
+
 function M.stopCmd(target)
     local match = safeMatch(target)
     if not match then
@@ -467,9 +482,7 @@ function M.stopCmd(target)
     elseif target.kind == "user-service" or target.kind == "user-timer" then
         return "systemctl --user stop " .. match
     elseif target.kind == "system-service" or target.kind == "system-timer" then
-        -- `-n` fails immediately instead of prompting: a bar click must never block on a
-        -- password. Without a NOPASSWD rule the target is skipped and logged.
-        return "sudo -n systemctl stop " .. match
+        return "systemctl stop " .. match
     elseif target.kind == "container" then
         return "docker stop " .. match
     end
@@ -487,7 +500,7 @@ function M.startCmd(target)
     if target.kind == "user-service" or target.kind == "user-timer" then
         return "systemctl --user start " .. match
     elseif target.kind == "system-service" or target.kind == "system-timer" then
-        return "sudo -n systemctl start " .. match
+        return "systemctl start " .. match
     elseif target.kind == "container" then
         return "docker start " .. match
     end
@@ -520,7 +533,7 @@ function M.freezeCmd(target)
         -- default, and freezing a unit must reach every process in its cgroup.
         return "systemctl --user kill --kill-whom=all -s SIGSTOP " .. match
     elseif target.kind == "system-service" then
-        return "sudo -n systemctl kill --kill-whom=all -s SIGSTOP " .. match
+        return "systemctl kill --kill-whom=all -s SIGSTOP " .. match
     elseif target.kind == "container" then
         -- docker pause is the cgroup freezer: an exact match for freeze semantics.
         return "docker pause " .. match
@@ -539,7 +552,7 @@ function M.thawCmd(target)
     elseif target.kind == "user-service" then
         return "systemctl --user kill --kill-whom=all -s SIGCONT " .. match
     elseif target.kind == "system-service" then
-        return "sudo -n systemctl kill --kill-whom=all -s SIGCONT " .. match
+        return "systemctl kill --kill-whom=all -s SIGCONT " .. match
     elseif target.kind == "container" then
         return "docker unpause " .. match
     end
@@ -731,6 +744,9 @@ end
 -- ── runtime ──
 
 local COMMAND_TIMEOUT_MS = 10000
+-- A privileged command can sit at a polkit password dialog. Ten seconds is not enough time
+-- to read a prompt and type a password, and a timeout there kills the command mid-dialog.
+local PRIVILEGED_TIMEOUT_MS = 120000
 local DEFAULT_POLL_SECONDS = 3
 
 local busy = false
@@ -752,39 +768,70 @@ end
 -- rare enough to treat as transient.
 local MAX_IN_FLIGHT = 4
 
-local queued = {}
-local inFlight = 0
+-- Privileged commands run one at a time. Polkit caches an administrator's answer, but only
+-- once it has one: firing four at a shell with no cached authorisation races four password
+-- dialogs onto the screen. Serialised, the first prompts and the rest ride the cache.
+local lanes = {
+    default = { queued = {}, inFlight = 0, limit = MAX_IN_FLIGHT, timeoutMs = COMMAND_TIMEOUT_MS },
+    privileged = { queued = {}, inFlight = 0, limit = 1, timeoutMs = PRIVILEGED_TIMEOUT_MS },
+}
 local pumping = false
+-- Across both lanes, because the shell's cap is global: whether a refusal is worth waiting
+-- out depends on anything of ours still running, not just this lane.
+local totalInFlight = 0
+local pump
 
-local function pump()
-    -- A command that completes synchronously calls back into pump from inside the loop
-    -- below. Letting that recurse would nest one stack frame per queued command and
-    -- overflow on a full target list, so the outer loop keeps ownership of the queue.
-    if pumping then
-        return
-    end
-    pumping = true
-    while inFlight < MAX_IN_FLIGHT and #queued > 0 do
-        local job = table.remove(queued, 1)
-        inFlight = inFlight + 1
+-- Returns whether it disposed of anything, which is what tells the caller a second round
+-- is worth attempting rather than spinning.
+local function pumpLane(lane)
+    local progressed = false
+    while lane.inFlight < lane.limit and #lane.queued > 0 do
+        local job = table.remove(lane.queued, 1)
+        lane.inFlight = lane.inFlight + 1
+        totalInFlight = totalInFlight + 1
         local started = noctalia.runAsync(job.command, function(result)
-            inFlight = inFlight - 1
+            lane.inFlight = lane.inFlight - 1
+            totalInFlight = totalInFlight - 1
             job.callback(result)
             pump()
-        end, COMMAND_TIMEOUT_MS)
+        end, lane.timeoutMs)
         if not started then
-            inFlight = inFlight - 1
-            if inFlight > 0 then
+            lane.inFlight = lane.inFlight - 1
+            totalInFlight = totalInFlight - 1
+            if totalInFlight > 0 then
                 -- Something is still running and will pump again when it finishes, so the
                 -- job keeps its place rather than being reported as a failure.
-                table.insert(queued, 1, job)
-                break
+                table.insert(lane.queued, 1, job)
+                return progressed
             end
-            -- Nothing is running to trigger a later pump. update() retries the queue on
+            -- Nothing is running to trigger a later pump. update() retries the queues on
             -- the poll tick, but this job has waited long enough to answer now.
             noctalia.log("gamermode: could not start command: " .. job.command)
             job.callback(nil)
         end
+        progressed = true
+    end
+    return progressed
+end
+
+-- A command that completes synchronously calls back into pump from inside pumpLane.
+-- Letting that recurse would nest one stack frame per queued command and overflow on a
+-- full target list, so the outer call keeps ownership of both queues.
+pump = function()
+    if pumping then
+        return
+    end
+    pumping = true
+    -- Rounds, not one pass: a callback firing inside pumpLane can queue work for the lane
+    -- that was already visited this pass -- probes finishing is exactly what queues the
+    -- suspends -- and its own pump() call was swallowed by the guard above. Without the
+    -- loop that work sits in the queue with nothing left to start it.
+    local progressed = true
+    while progressed do
+        -- Privileged first: it is the lane that may block on a password dialog, so it
+        -- should be waiting on the human rather than on our own bookkeeping.
+        progressed = pumpLane(lanes.privileged)
+        progressed = pumpLane(lanes.default) or progressed
     end
     pumping = false
 end
@@ -792,12 +839,13 @@ end
 -- run always invokes `callback` exactly once. A command that could not be built or
 -- could not be started yields nil, which every caller reads as "state unknown" -- so a
 -- busy shell degrades into doing nothing rather than into a wrong decision.
-local function run(command, callback)
+local function run(command, callback, privileged)
     if not command then
         callback(nil)
         return
     end
-    queued[#queued + 1] = { command = command, callback = callback }
+    local lane = privileged and lanes.privileged or lanes.default
+    lane.queued[#lane.queued + 1] = { command = command, callback = callback }
     pump()
 end
 
@@ -1036,7 +1084,7 @@ local function suspendAll(probed, done)
             if pending == 0 then
                 done(suspended)
             end
-        end)
+        end, M.needsPrivilege(job.entry.kind))
     end
 end
 
@@ -1150,7 +1198,7 @@ function M.disable()
                     noctalia.log("gamermode: could not thaw " .. target.match .. ": " .. describeFailure(result))
                 end
                 step()
-            end)
+            end, M.needsPrivilege(target.kind))
         end
     end
 
@@ -1177,7 +1225,7 @@ function M.disable()
                         )
                     end
                     step()
-                end)
+                end, M.needsPrivilege(target.kind))
             end)
         end
     end

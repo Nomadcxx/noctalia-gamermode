@@ -134,9 +134,9 @@ and hurts a chat app.
 | --- | --- | --- | --- | --- | --- |
 | `process` | `pgrep -x` | `pkill -x` | none, see below | `pkill -STOP -x` | `pkill -CONT -x` |
 | `user-service` | `systemctl --user is-active` | `systemctl --user stop` | `systemctl --user start` | `systemctl --user kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
-| `system-service` | `systemctl is-active` | `sudo -n systemctl stop` | `sudo -n systemctl start` | `sudo -n systemctl kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
+| `system-service` | `systemctl is-active` | `systemctl stop` | `systemctl start` | `systemctl kill --kill-whom=all -s SIGSTOP` | same with `SIGCONT` |
 | `user-timer` | `systemctl --user is-active` | `systemctl --user stop` | `systemctl --user start` | invalid | invalid |
-| `system-timer` | `systemctl is-active` | `sudo -n systemctl stop` | `sudo -n systemctl start` | invalid | invalid |
+| `system-timer` | `systemctl is-active` | `systemctl stop` | `systemctl start` | invalid | invalid |
 | `container` | `docker inspect -f '{{.State.Running}}'` | `docker stop` | `docker start` | `docker pause` | `docker unpause` |
 
 ### Timers
@@ -183,20 +183,49 @@ wrong entry here costs you a dead session or a killed game, and an override fiel
 is the one people copy from a forum post without reading. To act on one of these,
 use Feral GameMode's `start=` and `end=` script hooks in `gamemode.ini`.
 
-### System units need passwordless sudo
+### System units ask for a password once
 
-The plugin controls system units and timers through `sudo -n`, which fails at
-once instead of prompting, because a bar click must never wait on a password.
-Without a NOPASSWD rule the plugin skips those targets and logs the failure.
+Stopping or starting a system unit needs authorisation. The plugin calls
+`systemctl` with no sudo: the call reaches systemd over D-Bus, systemd asks
+polkit, and polkit asks your desktop's authentication agent to prompt.
 
-Add a sudoers drop-in with `sudo visudo -f /etc/sudoers.d/gamermode`:
+`org.freedesktop.systemd1.manage-units` resolves to `auth_admin_keep` for an
+active local session, so an administrator is asked once and the answer is cached
+for the rest of the batch. The plugin runs these one at a time so a single dialog
+covers them, and allows two minutes for each, which is long enough to read a
+prompt and type.
 
+Check what your machine will do:
+
+```sh
+pkaction --action-id org.freedesktop.systemd1.manage-units --verbose
 ```
-youruser ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop sonarr.service, /usr/bin/systemctl start sonarr.service
+
+You need an authentication agent running for the prompt to appear at all. Most
+desktops start one; standalone compositors often do not. Check with:
+
+```sh
+pgrep -af 'polkit.*agent'
 ```
 
-List each unit you target. A blanket `systemctl *` rule lets anything running as
-your user stop or start any system unit, so prefer the explicit list.
+If nothing is listed, install one such as `mate-polkit`, `polkit-gnome` or
+`hyprpolkitagent` and start it with your session. Without an agent the calls fail
+and each one is logged.
+
+To skip the prompt, add a polkit rule granting the units you target. Scope it to
+those units: a blanket rule lets anything running as you stop or start any system
+unit. In `/etc/polkit-1/rules.d/49-gamermode.rules`:
+
+```javascript
+polkit.addRule(function (action, subject) {
+    var units = ["sonarr.service", "radarr.service", "fstrim.timer"];
+    if (action.id == "org.freedesktop.systemd1.manage-units"
+        && subject.isInGroup("wheel")
+        && units.indexOf(action.lookup("unit")) >= 0) {
+        return polkit.Result.YES;
+    }
+});
+```
 
 ## Targets left out of the built-in list
 
@@ -286,7 +315,7 @@ exists, and units that were stopped may have come back on their own.
 A stale session gets a full restore pass before the plugin clears it. A stopped
 unit that is not `enabled` is still down after a reboot, and putting it
 back is what you were told would happen. Frozen targets died with the reboot, so
-their thaw does nothing. This can fire a few `sudo -n systemctl start` calls
+their thaw does nothing. This can fire a few `systemctl start` calls
 soon after login, and the plugin logs each one.
 
 Within the same boot the plugin always keeps the session, even when everything

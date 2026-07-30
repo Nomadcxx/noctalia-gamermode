@@ -82,7 +82,7 @@ assert(rebootMock.published.game_mode.enabled == false, "reports disabled after 
 assert(afterReboot.readSnapshot() == nil, "stale session cleared")
 -- A stopped unit that is not `enabled` really is still down, and the promise was to put it
 -- back.
-assert(helpers.ranCommand(rebootMock, "sudo -n systemctl start 'nzbget.service'"), "stop target restored")
+assert(helpers.ranCommand(rebootMock, "systemctl start 'nzbget.service'"), "stop target restored")
 -- The frozen process died with the reboot, so its thaw is a harmless no-op.
 assert(helpers.ranCommand(rebootMock, "pkill -CONT -x 'brave'"), "freeze target thawed harmlessly")
 local logged = false

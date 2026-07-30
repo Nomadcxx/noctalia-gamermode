@@ -296,9 +296,14 @@ function helpers.newNoctalia(opts)
     mock.pending = {}
     mock.peakInFlight = 0
     mock.refused = 0
+    -- One entry per drained round, listing what was genuinely in flight together. Lets a
+    -- test assert that two commands never overlapped.
+    mock.rounds = {}
+    mock.timeoutFor = {}
 
-    mock.runAsync = function(command, callback, _timeoutMs)
+    mock.runAsync = function(command, callback, timeoutMs)
         table.insert(mock.commands, command)
+        mock.timeoutFor[command] = timeoutMs
         if mock.startFail and mock.startFail(command) then
             return false
         end
@@ -325,6 +330,13 @@ function helpers.newNoctalia(opts)
     mock.drain = function()
         local round = mock.pending
         mock.pending = {}
+        if #round > 0 then
+            local names = {}
+            for _, job in ipairs(round) do
+                names[#names + 1] = job.command
+            end
+            table.insert(mock.rounds, names)
+        end
         for _, job in ipairs(round) do
             if job.callback then
                 job.callback(ok(mock.respond and mock.respond(job.command) or nil))

@@ -19,6 +19,18 @@ local RUNNING = {
     ["gslapper"] = "296899",
     ["adb"] = "31337",
 }
+local RUNNING_NAMES = { "qbittorrent-nox", "gslapper", "adb" }
+
+-- Active system units: the targets whose stop needs authorisation, and so the ones that
+-- must be serialised behind a single password prompt.
+local ACTIVE_UNITS = {
+    "sonarr.service",
+    "radarr.service",
+    "prowlarr.service",
+    "jackett.service",
+    "fstrim.timer",
+    "smartd.timer",
+}
 
 local function respond(command)
     if command == "powerprofilesctl get" then
@@ -32,8 +44,21 @@ local function respond(command)
             return { stdout = pids .. "\n", exitCode = 0 }
         end
     end
+    for _, unit in ipairs(ACTIVE_UNITS) do
+        if command == "systemctl is-active '" .. unit .. "'" then
+            return { stdout = "active\n", exitCode = 0 }
+        end
+    end
     -- Everything else is absent: pgrep and systemctl both report failure.
     return { stdout = "", exitCode = 1 }
+end
+
+-- A systemctl call against a system unit: neither --user nor a read-only probe. These are
+-- the calls polkit challenges.
+local function isPrivileged(command)
+    return command:find("^systemctl ") ~= nil
+        and not command:find("--user", 1, true)
+        and not command:find("is-active", 1, true)
 end
 
 local mock = helpers.newNoctalia({
@@ -118,7 +143,7 @@ for _, entry in ipairs(snap.targets) do
         up = up + 1
     end
 end
-assert(up == 3, "exactly the running targets were seen as up, got " .. up)
+assert(up == #RUNNING_NAMES + #ACTIVE_UNITS, "exactly the up targets were seen as up, got " .. up)
 
 -- Suspension followed, rather than the run reporting nothing to do.
 local suspends = 0
@@ -127,6 +152,45 @@ for _, command in ipairs(mock.commands) do
         suspends = suspends + 1
     end
 end
-assert(suspends == 3, "each running target got a freeze command, got " .. suspends)
+assert(suspends == #RUNNING_NAMES, "each running process got a freeze command, got " .. suspends)
+
+-- ── privileged commands are serialised behind one prompt ──
+
+-- Managing a system unit is challenged by polkit, which caches an administrator's answer
+-- only once it has one. Firing several at a shell with nothing cached races that many
+-- password dialogs onto the screen, so these must never overlap.
+local privileged = 0
+for _, command in ipairs(mock.commands) do
+    if isPrivileged(command) then
+        privileged = privileged + 1
+    end
+end
+assert(privileged == #ACTIVE_UNITS,
+    "every active system unit got a stop, got " .. privileged .. " of " .. #ACTIVE_UNITS)
+
+for index, round in ipairs(mock.rounds) do
+    local concurrent = {}
+    for _, command in ipairs(round) do
+        if isPrivileged(command) then
+            concurrent[#concurrent + 1] = command
+        end
+    end
+    assert(#concurrent <= 1,
+        "round " .. index .. " ran " .. #concurrent .. " privileged commands at once: "
+            .. table.concat(concurrent, ", "))
+end
+
+-- And they get long enough to survive a human reading a dialog and typing.
+for _, command in ipairs(mock.commands) do
+    local timeout = mock.timeoutFor[command]
+    if isPrivileged(command) then
+        assert(timeout and timeout >= 60000,
+            "a command that can wait on a password dialog needs a generous timeout, "
+                .. command .. " got " .. tostring(timeout))
+    else
+        assert(timeout and timeout <= 30000,
+            "unprivileged commands stay snappy, " .. command .. " got " .. tostring(timeout))
+    end
+end
 
 print("concurrency: passed")
