@@ -67,4 +67,109 @@ function M.normalize(raw)
     return metrics
 end
 
+-- ── suspend targets ──
+
+local VALID_KINDS = {
+    process = true,
+    ["user-service"] = true,
+    ["system-service"] = true,
+    container = true,
+}
+
+-- Defaults are deliberately conservative: `light` covers wallpaper/media-adjacent
+-- helpers, `heavy` adds the self-hosted media stack. Users override the whole list
+-- through the advanced `targets` setting.
+M.DEFAULT_TARGETS = {
+    { match = "gslapper", kind = "process", profiles = { "light", "heavy" } },
+    { match = "spotifyd.service", kind = "user-service", profiles = { "light", "heavy" } },
+    { match = "adb", kind = "process", profiles = { "light", "heavy" } },
+    { match = "kokoro-tts", kind = "container", profiles = { "light", "heavy" } },
+    { match = "sonarr.service", kind = "system-service", profiles = { "heavy" } },
+    { match = "radarr.service", kind = "system-service", profiles = { "heavy" } },
+}
+
+-- Every match string is interpolated into a shell command, so control characters are
+-- refused outright rather than escaped.
+local function validateShellValue(value)
+    if type(value) ~= "string" or value == "" or value:find("[\n\r%z]") then
+        return nil
+    end
+    return value
+end
+
+M.validateShellValue = validateShellValue
+
+local function validEntry(entry)
+    if type(entry) ~= "table" or not VALID_KINDS[entry.kind] then
+        return false
+    end
+    if not validateShellValue(entry.match) then
+        return false
+    end
+    if type(entry.profiles) ~= "table" or #entry.profiles == 0 then
+        return false
+    end
+    for _, profile in ipairs(entry.profiles) do
+        if type(profile) ~= "string" or profile == "" then
+            return false
+        end
+    end
+    return true
+end
+
+local function copyTargets(list)
+    local out = {}
+    for index, entry in ipairs(list) do
+        local profiles = {}
+        for profileIndex, profile in ipairs(entry.profiles) do
+            profiles[profileIndex] = profile
+        end
+        out[index] = { match = entry.match, kind = entry.kind, profiles = profiles }
+    end
+    return out
+end
+
+-- parseTargets decodes the `targets` setting, dropping individual invalid entries.
+-- An unset, unparseable or wholly invalid setting falls back to DEFAULT_TARGETS so a
+-- typo can never leave gamer mode with an empty kill list and no explanation.
+function M.parseTargets(raw)
+    if type(raw) == "string" and raw ~= "" then
+        local decoded, decodeError = noctalia.json.decode(raw)
+        if type(decoded) ~= "table" then
+            noctalia.log("gamermode: ignoring invalid targets setting: " .. tostring(decodeError or "not a JSON array"))
+        else
+            local out = {}
+            local rejected = 0
+            for _, entry in ipairs(decoded) do
+                if validEntry(entry) then
+                    out[#out + 1] = { match = entry.match, kind = entry.kind, profiles = entry.profiles }
+                else
+                    rejected = rejected + 1
+                end
+            end
+            if rejected > 0 then
+                noctalia.log("gamermode: dropped " .. rejected .. " invalid target entries")
+            end
+            if #out > 0 then
+                return copyTargets(out)
+            end
+            noctalia.log("gamermode: targets setting had no usable entries, using defaults")
+        end
+    end
+    return copyTargets(M.DEFAULT_TARGETS)
+end
+
+function M.targetsForProfile(targets, profile)
+    local out = {}
+    for _, target in ipairs(targets) do
+        for _, tagged in ipairs(target.profiles) do
+            if tagged == profile then
+                out[#out + 1] = target
+                break
+            end
+        end
+    end
+    return out
+end
+
 return M
