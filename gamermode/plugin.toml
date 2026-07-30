@@ -1,0 +1,90 @@
+id = "nomadcxx/gamermode"
+name = "Gamer Mode"
+version = "0.1.0"
+plugin_api = 19
+author = "Nomadcxx"
+license = "MIT"
+dependencies = ["pgrep", "pkill", "powerprofilesctl", "systemctl"]
+tags = ["bar", "panel", "service", "gaming", "performance", "metrics"]
+icon = "device-gamepad-2"
+description = "Live CPU/RAM/GPU metrics and a one-click gamer mode that suspends and restores background resource hogs."
+
+[[setting]]
+key = "glyph"
+type = "glyph"
+label_key = "settings.glyph.label"
+description_key = "settings.glyph.description"
+default = "device-gamepad-2"
+
+[[setting]]
+key = "click_action"
+type = "select"
+label_key = "settings.click_action.label"
+description_key = "settings.click_action.description"
+default = "toggle"
+options = [
+  { value = "toggle", label_key = "settings.click_action.options.toggle" },
+  { value = "open_panel", label_key = "settings.click_action.options.open_panel" },
+]
+
+[[setting]]
+key = "poll_interval"
+type = "select"
+label_key = "settings.poll_interval.label"
+description_key = "settings.poll_interval.description"
+default = "3"
+options = [
+  { value = "2", label_key = "settings.poll_interval.options.2" },
+  { value = "3", label_key = "settings.poll_interval.options.3" },
+  { value = "5", label_key = "settings.poll_interval.options.5" },
+]
+
+[[setting]]
+key = "profile"
+type = "select"
+label_key = "settings.profile.label"
+description_key = "settings.profile.description"
+default = "light"
+options = [
+  { value = "light", label_key = "settings.profile.options.light" },
+  { value = "heavy", label_key = "settings.profile.options.heavy" },
+]
+
+[[setting]]
+key = "auto_performance"
+type = "bool"
+label_key = "settings.auto_performance.label"
+description_key = "settings.auto_performance.description"
+default = true
+
+[[setting]]
+key = "show_temps"
+type = "bool"
+label_key = "settings.show_temps.label"
+description_key = "settings.show_temps.description"
+default = true
+
+[[setting]]
+key = "targets"
+type = "string"
+label_key = "settings.targets.label"
+description_key = "settings.targets.description"
+default = ""
+advanced = true
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[panel]]
+id = "main"
+entry = "panel.luau"
+width = 420
+height = 560
+placement = "attached"
+position = "auto"
+keyboard_focus = "none"
+
+[[widget]]
+id = "bar"
+entry = "widget.luau"

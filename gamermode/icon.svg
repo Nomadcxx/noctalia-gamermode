@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- gamepad body -->
+  <path d="M6.5 7.5h11a4.5 4.5 0 0 1 4.4 5.4l-.8 3.6a3 3 0 0 1-5.3 1.3l-1.2-1.5a1.5 1.5 0 0 0-1.2-.6h-2.8a1.5 1.5 0 0 0-1.2.6l-1.2 1.5a3 3 0 0 1-5.3-1.3l-.8-3.6A4.5 4.5 0 0 1 6.5 7.5z"/>
+  <!-- d-pad -->
+  <path d="M7.5 11v3M6 12.5h3"/>
+  <!-- buttons -->
+  <circle cx="15.5" cy="11.6" r="0.4" fill="currentColor"/>
+  <circle cx="17.6" cy="13.2" r="0.4" fill="currentColor"/>
+</svg>

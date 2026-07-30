@@ -1,0 +1,78 @@
+{
+  "widget": {
+    "tooltip_loading": "Gamer Mode: loading metrics..."
+  },
+  "settings": {
+    "glyph": {
+      "label": "Bar icon",
+      "description": "Glyph shown on the bar."
+    },
+    "click_action": {
+      "label": "Left-click action",
+      "description": "What left-clicking the bar icon does.",
+      "options": {
+        "toggle": "Toggle gamer mode",
+        "open_panel": "Open panel"
+      }
+    },
+    "poll_interval": {
+      "label": "Poll interval",
+      "description": "Seconds between metric updates.",
+      "options": {
+        "2": "2s",
+        "3": "3s",
+        "5": "5s"
+      }
+    },
+    "profile": {
+      "label": "Gamer mode profile",
+      "description": "How aggressive the suspend list is.",
+      "options": {
+        "light": "Light",
+        "heavy": "Heavy"
+      }
+    },
+    "auto_performance": {
+      "label": "Auto performance profile",
+      "description": "Switch power profile to performance while gamer mode is on."
+    },
+    "show_temps": {
+      "label": "Show temperatures",
+      "description": "Include CPU/GPU temperatures in tooltip and panel."
+    },
+    "targets": {
+      "label": "Suspend targets (JSON)",
+      "description": "Advanced: JSON array of {match, kind, profiles}. Kind: process, user-service, system-service, container."
+    }
+  },
+  "panel": {
+    "title": "Gamer Mode",
+    "enable": "Enable",
+    "disable": "Disable",
+    "working": "Working...",
+    "performance": "Performance",
+    "power_profile": "Power profile",
+    "power_unavailable": "powerprofilesctl unavailable",
+    "mode_profile": "Suspend profile",
+    "suspended": "Suspended",
+    "nothing_suspended": "Nothing suspended",
+    "gpu_unsupported": "GPU metrics unsupported",
+    "metrics_unavailable": "System metrics unavailable",
+    "settings": "Settings",
+    "profiles": {
+      "light": "Light",
+      "heavy": "Heavy"
+    },
+    "power": {
+      "power-saver": "Power saver",
+      "balanced": "Balanced",
+      "performance": "Performance"
+    }
+  },
+  "notify": {
+    "enabled_title": "Gamer mode enabled",
+    "disabled_title": "Gamer mode disabled",
+    "nothing_suspended": "No background targets were running.",
+    "failed_title": "Gamer mode failed"
+  }
+}
