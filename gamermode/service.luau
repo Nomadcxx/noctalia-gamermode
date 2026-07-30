@@ -572,11 +572,25 @@ local function snapshotPath()
     return directory .. "/session.json"
 end
 
+-- The kernel boot id changes on every boot, which makes it an exact staleness marker for a
+-- session file. More reliable than inferring staleness from live state: a frozen process
+-- still appears in pgrep, so "is everything running again?" false-positives on every freeze
+-- target.
+function M.currentBootId()
+    local contents = noctalia.readFile("/proc/sys/kernel/random/boot_id")
+    if not contents then
+        return nil
+    end
+    local id = contents:gsub("%s+", "")
+    return id ~= "" and id or nil
+end
+
 function M.buildSnapshot(profile, powerProfileBefore, probedTargets)
     return {
         version = SNAPSHOT_VERSION,
         profile = profile,
         power_profile_before = powerProfileBefore,
+        boot_id = M.currentBootId(),
         targets = probedTargets,
     }
 end
@@ -702,6 +716,7 @@ function M.readSnapshot()
         version = decoded.version,
         profile = type(decoded.profile) == "string" and decoded.profile or "light",
         power_profile_before = type(decoded.power_profile_before) == "string" and decoded.power_profile_before or nil,
+        boot_id = type(decoded.boot_id) == "string" and decoded.boot_id or nil,
         targets = targets,
     }
 end
@@ -1146,14 +1161,47 @@ function M.handleCommand(command)
     end
 end
 
+-- reconcileSession decides what a session file found at startup means. A session from a
+-- previous boot is stale: nothing it froze still exists, and units it stopped may have come
+-- back on their own. It still gets a full restore pass before being cleared, because a
+-- stopped unit that is not `enabled` really is still down, and putting it back is what the
+-- user was told would happen.
+--
+-- Within the same boot a session is always kept, even if everything looks running -- that
+-- is precisely the case where something may still be frozen and needs thawing.
+function M.reconcileSession()
+    local snap = M.readSnapshot()
+    if not snap then
+        M.publishGameMode()
+        return
+    end
+
+    local current = M.currentBootId()
+    -- A snapshot with no boot id was written by an older version; treat it as current
+    -- rather than abandoning targets that may still be suspended. Likewise when the boot
+    -- id cannot be read at all.
+    if not snap.boot_id or not current or snap.boot_id == current then
+        M.publishGameMode()
+        return
+    end
+
+    noctalia.log("gamermode: session predates the current boot, restoring and clearing it")
+    M.disable()
+end
+
 function M.init()
     local directory = noctalia.pluginDataDir()
     if directory then
         noctalia.mkdirAll(directory)
     end
+    -- Publish immediately so a panel opened before the first poll is not empty.
     M.publishGameMode()
     M.publishMetrics()
-    M.refreshPower()
+    -- Reconciliation can restore the previous power profile, so it waits until the power
+    -- state is known.
+    M.refreshPower(function()
+        M.reconcileSession()
+    end)
 
     local seconds = tonumber(noctalia.getConfig("poll_interval")) or DEFAULT_POLL_SECONDS
     noctalia.setUpdateInterval(math.max(1, seconds) * 1000)

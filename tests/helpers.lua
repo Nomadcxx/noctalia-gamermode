@@ -249,6 +249,9 @@ function helpers.newNoctalia(opts)
         respond = opts.respond,
         startFail = opts.startFail,
         clock = 1000,
+        -- Served from /proc/sys/kernel/random/boot_id so tests can simulate a reboot.
+        -- Explicit `false` simulates an unreadable boot id, so this cannot use `or`.
+        bootId = opts.bootId == nil and "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" or opts.bootId,
     }
 
     local function ok(result)
@@ -295,6 +298,13 @@ function helpers.newNoctalia(opts)
     end
 
     mock.readFile = function(path)
+        -- The kernel boot id is served from the mock so tests can simulate a reboot.
+        if path == "/proc/sys/kernel/random/boot_id" then
+            if mock.bootId == false then
+                return nil, "unreadable"
+            end
+            return mock.bootId .. "\n"
+        end
         local file = io.open(path, "r")
         if not file then
             return nil, "not found"
