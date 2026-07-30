@@ -234,6 +234,9 @@ end
 -- opts.dataDir   pluginDataDir() return value
 -- opts.respond   function(command) -> result table, to script runAsync outcomes
 -- opts.startFail function(command) -> boolean, to simulate runAsync capacity refusal
+-- opts.capacity  number of concurrent commands the shell will accept; beyond it runAsync
+--                refuses the way the real one does. Implies async: callbacks are held
+--                until mock.drain() runs them, so concurrency is observable at all.
 function helpers.newNoctalia(opts)
     opts = opts or {}
     local dataDir = opts.dataDir or "/tmp/gamermode-test"
@@ -286,15 +289,48 @@ function helpers.newNoctalia(opts)
         return mock.stats or nil
     end
 
+    -- Commands accepted but not yet completed, when opts.capacity puts the mock in async
+    -- mode. The real shell runs children in parallel and calls back later; a mock that
+    -- calls back inline can never have two commands in flight, so it cannot show whether
+    -- the plugin respects the cap.
+    mock.pending = {}
+    mock.peakInFlight = 0
+    mock.refused = 0
+
     mock.runAsync = function(command, callback, _timeoutMs)
         table.insert(mock.commands, command)
         if mock.startFail and mock.startFail(command) then
             return false
         end
+        if opts.capacity then
+            if #mock.pending >= opts.capacity then
+                mock.refused = mock.refused + 1
+                return false
+            end
+            table.insert(mock.pending, { command = command, callback = callback })
+            if #mock.pending > mock.peakInFlight then
+                mock.peakInFlight = #mock.pending
+            end
+            return true
+        end
         if callback then
             callback(ok(mock.respond and mock.respond(command) or nil))
         end
         return true
+    end
+
+    -- drain completes one round: the commands in flight when it was called, and no more.
+    -- Anything the plugin starts from those callbacks waits for the next round, which is
+    -- what makes the refill visible to a test. Returns how many finished.
+    mock.drain = function()
+        local round = mock.pending
+        mock.pending = {}
+        for _, job in ipairs(round) do
+            if job.callback then
+                job.callback(ok(mock.respond and mock.respond(job.command) or nil))
+            end
+        end
+        return #round
     end
 
     mock.readFile = function(path)

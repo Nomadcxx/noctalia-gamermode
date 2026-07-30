@@ -741,6 +741,54 @@ local function trim(value)
     return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- The shell caps how many child processes may be in flight at once (8 in the build this
+-- was written against) and runAsync refuses rather than queueing once that cap is hit.
+-- Fanning the whole target list out in one pass therefore loses every command past the
+-- eighth, and a probe that never ran reads as "down" -- so enable would record an idle
+-- machine and suspend nothing. Commands go through a queue instead, a few at a time.
+--
+-- The cap is shared with the rest of the shell, so a refusal does not always mean our own
+-- slots are full. Staying well under it leaves room for other plugins and makes a refusal
+-- rare enough to treat as transient.
+local MAX_IN_FLIGHT = 4
+
+local queued = {}
+local inFlight = 0
+local pumping = false
+
+local function pump()
+    -- A command that completes synchronously calls back into pump from inside the loop
+    -- below. Letting that recurse would nest one stack frame per queued command and
+    -- overflow on a full target list, so the outer loop keeps ownership of the queue.
+    if pumping then
+        return
+    end
+    pumping = true
+    while inFlight < MAX_IN_FLIGHT and #queued > 0 do
+        local job = table.remove(queued, 1)
+        inFlight = inFlight + 1
+        local started = noctalia.runAsync(job.command, function(result)
+            inFlight = inFlight - 1
+            job.callback(result)
+            pump()
+        end, COMMAND_TIMEOUT_MS)
+        if not started then
+            inFlight = inFlight - 1
+            if inFlight > 0 then
+                -- Something is still running and will pump again when it finishes, so the
+                -- job keeps its place rather than being reported as a failure.
+                table.insert(queued, 1, job)
+                break
+            end
+            -- Nothing is running to trigger a later pump. update() retries the queue on
+            -- the poll tick, but this job has waited long enough to answer now.
+            noctalia.log("gamermode: could not start command: " .. job.command)
+            job.callback(nil)
+        end
+    end
+    pumping = false
+end
+
 -- run always invokes `callback` exactly once. A command that could not be built or
 -- could not be started yields nil, which every caller reads as "state unknown" -- so a
 -- busy shell degrades into doing nothing rather than into a wrong decision.
@@ -749,11 +797,8 @@ local function run(command, callback)
         callback(nil)
         return
     end
-    local started = noctalia.runAsync(command, callback, COMMAND_TIMEOUT_MS)
-    if not started then
-        noctalia.log("gamermode: could not start command: " .. command)
-        callback(nil)
-    end
+    queued[#queued + 1] = { command = command, callback = callback }
+    pump()
 end
 
 local function succeeded(result)
@@ -1229,6 +1274,10 @@ end
 
 function update()
     M.publishMetrics()
+    -- A queue can only stall if every start was refused while nothing of ours was running,
+    -- which needs the rest of the shell to hold the whole process cap. The poll tick is the
+    -- one thing guaranteed to keep firing, so it is what gets the queue moving again.
+    pump()
 end
 
 function onConfigChanged()
