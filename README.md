@@ -32,13 +32,15 @@ Add this repository as a custom plugin source:
 Then open **Settings → Bar**, choose a widget section, select Add Widget, and add
 **Gamer Mode**.
 
-Adding a source is a settings-window action. The `plugins` IPC surface covers
-listing and enabling:
+Or do the same from a shell:
 
 ```sh
-noctalia msg plugins list
+noctalia msg plugins source add gamermode git https://github.com/Nomadcxx/noctalia-gamermode
 noctalia msg plugins enable nomadcxx/gamermode
 ```
+
+Pull a newer version with `noctalia msg plugins update <source-name>`, then run
+`enable` again to re-export it.
 
 See the [plugin README](gamermode/README.md) for the target list format,
 configuration, commands, and runtime side effects.
