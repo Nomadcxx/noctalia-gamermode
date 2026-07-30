@@ -8,7 +8,7 @@
 
 **Tech Stack:** Noctalia V5 luau plugin API (`plugin_api = 19`), plain `lua` 5.5 for tests via the `tests/helpers.lua` mock.
 
-**Spec:** `docs/superpowers/specs/2026-07-30-gamermode-hardening-design.md`
+**Spec:** `docs/plans/2026-07-30-gamermode-hardening-design.md`
 
 ## Global Constraints
 
