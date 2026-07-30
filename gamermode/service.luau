@@ -129,17 +129,170 @@ function M.isDenied(match)
     return DENIED[baseName(match)] == true
 end
 
--- Defaults are deliberately conservative: `light` covers wallpaper/media-adjacent
--- helpers, `heavy` adds the self-hosted media stack. Users override the whole list
--- through the advanced `targets` setting.
-M.DEFAULT_TARGETS = {
-    { match = "gslapper", kind = "process", profiles = { "light", "heavy" } },
-    { match = "spotifyd.service", kind = "user-service", profiles = { "light", "heavy" } },
-    { match = "adb", kind = "process", profiles = { "light", "heavy" } },
-    { match = "kokoro-tts", kind = "container", profiles = { "light", "heavy" } },
-    { match = "sonarr.service", kind = "system-service", profiles = { "heavy" } },
-    { match = "radarr.service", kind = "system-service", profiles = { "heavy" } },
-}
+-- Defaults aim to be plausible on an arbitrary Linux desktop rather than tuned to one
+-- machine. Breadth is close to free: a target that is not running probes as `down`, so it
+-- is never acted on and never restored -- an entry for absent software costs one pgrep.
+-- The risk is never "too many entries", it is "an entry that is present but should not be
+-- touched", which is what the denylist above exists for.
+--
+-- `light` is background-only: nothing the user could be interacting with, and nothing that
+-- produces sound, voice or video they would want during a game. `heavy` adds the big
+-- foreground consumers as freezes plus the self-hosted service stacks as stops.
+local LIGHT = { "light", "heavy" }
+local HEAVY = { "heavy" }
+
+local function processes(names, profiles, out)
+    for _, name in ipairs(names) do
+        -- Always freeze: a bare process has no argv to relaunch from, so stopping one is
+        -- unrecoverable.
+        out[#out + 1] = { match = name, kind = "process", action = "freeze", profiles = profiles }
+    end
+    return out
+end
+
+local function units(names, kind, profiles, out)
+    for _, name in ipairs(names) do
+        out[#out + 1] = { match = name, kind = kind, action = "stop", profiles = profiles }
+    end
+    return out
+end
+
+local function buildDefaults()
+    local out = {}
+
+    -- ── light: wallpaper and desktop-effect daemons ──
+    -- Animated and video wallpapers cost real GPU time. Freezing stops the rendering,
+    -- which is the entire win, and SIGCONT restores it perfectly -- where killing the
+    -- daemon would need a full relaunch-and-rewallpaper dance.
+    -- swww was archived and renamed to awww in Oct 2025; both names ship.
+    processes({
+        "awww-daemon", "swww-daemon", "hyprpaper", "swaybg", "wpaperd", "mpvpaper",
+        "glpaper", "wbg", "oguri", "linux-wallpaperengine", "gslapper",
+    }, LIGHT, out)
+
+    -- ── light: torrent and usenet ──
+    -- Sustained disk I/O plus network saturation; usenet unpack and par2 repair also burn
+    -- a lot of CPU.
+    processes({
+        "qbittorrent", "qbittorrent-nox", "transmission-daemon", "transmission-gtk",
+        "deluged", "deluge-gtk", "rtorrent", "aria2c", "ktorrent",
+        "sabnzbd", "sabnzbdplus", "nzbget",
+    }, LIGHT, out)
+    units({
+        "transmission.service", "qbittorrent-nox.service", "deluged.service",
+        "aria2.service", "sabnzbd.service", "nzbget.service",
+    }, "system-service", LIGHT, out)
+
+    -- ── light: cloud sync ──
+    processes({
+        "syncthing", "dropbox", "nextcloud", "insync", "megasync", "onedrive",
+        "maestral", "rclone", "seafile-applet", "owncloud",
+    }, LIGHT, out)
+    units({ "syncthing.service", "onedrive.service" }, "user-service", LIGHT, out)
+
+    -- ── light: backup ──
+    processes({ "borg", "restic", "duplicati", "rsnapshot", "kopia" }, LIGHT, out)
+    units({
+        "borgmatic.timer", "restic-backup.timer", "snapper-timeline.timer",
+        "snapper-cleanup.timer", "duplicati.timer",
+    }, "system-timer", LIGHT, out)
+
+    -- ── light: file indexers ──
+    processes({
+        "baloo_file", "baloo_file_extractor", "tracker-miner-fs-3", "tracker-extract-3",
+        "recollindex", "updatedb", "plocate",
+    }, LIGHT, out)
+    units({ "plocate-updatedb.timer", "updatedb.timer", "mlocate.timer" }, "system-timer", LIGHT, out)
+
+    -- ── light: scheduled maintenance ──
+    -- Stopping a service does nothing if its timer re-fires it mid-game. fstrim in
+    -- particular stalls I/O hard.
+    units({
+        "fstrim.timer", "smartd.timer", "paccache.timer", "pamac-cleancache.timer",
+        "reflector.timer", "archlinux-keyring-wkd-sync.timer", "pacman-filesdb-refresh.timer",
+        "systemd-tmpfiles-clean.timer", "man-db.timer", "dnf-makecache.timer",
+        "snapd.refresh.timer", "flatpak-system-update.timer", "e2scrub_all.timer",
+    }, "system-timer", LIGHT, out)
+
+    -- ── light: update daemons ──
+    units({
+        "packagekit.service", "pamac-daemon.service", "snapd.service",
+        "unattended-upgrades.service",
+    }, "system-service", LIGHT, out)
+
+    -- ── light: AI / LLM runtimes ──
+    -- These hold VRAM, which only a real stop releases -- freezing keeps every page
+    -- resident. Service-kind only, because process + stop is unrecoverable.
+    units({
+        "ollama.service", "localai.service", "comfyui.service", "open-webui.service",
+    }, "system-service", LIGHT, out)
+
+    -- ── light: antivirus and telemetry ──
+    units({
+        "clamav-daemon.service", "clamd.service", "clamav-freshclam.service",
+    }, "system-service", LIGHT, out)
+    units({ "clamav-freshclam.timer", "rkhunter.timer" }, "system-timer", LIGHT, out)
+    units({
+        "whoopsie.service", "apport.service", "abrtd.service", "teamviewerd.service",
+        "anydesk.service",
+    }, "system-service", LIGHT, out)
+
+    -- ── light: phone and emulator tooling ──
+    processes({ "adb", "scrcpy" }, LIGHT, out)
+
+    -- ── heavy: browsers ──
+    -- Usually the single largest consumer of both RAM and CPU. Frozen, not killed: nobody
+    -- wants their tabs gone when they quit a game.
+    processes({
+        "brave", "chrome", "google-chrome", "chromium", "firefox", "librewolf",
+        "vivaldi-bin", "opera", "microsoft-edge", "thorium", "zen-browser", "waterfox",
+        "qutebrowser",
+    }, HEAVY, out)
+
+    -- ── heavy: editors, language servers, builds ──
+    -- `java`, `dotnet` and `node` are deliberately absent: they are game runtimes as well
+    -- as build tools. Minecraft and every PrismLauncher instance run as `java`, Unity and
+    -- .NET titles as `dotnet` -- freezing them would freeze the game.
+    processes({
+        "code", "codium", "code-oss", "cursor", "zed", "idea", "pycharm", "webstorm",
+        "clion", "goland", "rider", "rustrover", "android-studio", "sublime_text",
+    }, HEAVY, out)
+    processes({
+        "rust-analyzer", "gopls", "clangd", "pylsp", "pyright",
+        "typescript-language-server", "jdtls", "lua-language-server", "omnisharp", "ccls",
+    }, HEAVY, out)
+    processes({
+        "cargo", "rustc", "gradle", "tsc", "webpack", "vite", "esbuild", "ninja", "make",
+        "cc1plus", "ccache", "sccache", "distccd",
+    }, HEAVY, out)
+    processes({ "claude", "opencode", "codex", "aider" }, HEAVY, out)
+
+    -- ── heavy: CI runners ──
+    units({
+        "gitlab-runner.service", "buildkite-agent.service", "jenkins.service",
+    }, "system-service", HEAVY, out)
+
+    -- ── heavy: self-hosted media stack ──
+    units({
+        "sonarr.service", "radarr.service", "lidarr.service", "readarr.service",
+        "prowlarr.service", "bazarr.service", "jackett.service", "jellyseerr.service",
+        "overseerr.service", "ombi.service", "tautulli.service",
+    }, "system-service", HEAVY, out)
+    units({
+        "jellyfin.service", "plexmediaserver.service", "emby-server.service",
+        "audiobookshelf.service", "navidrome.service", "komga.service", "kavita.service",
+        "photoprism.service", "calibre-server.service",
+    }, "system-service", HEAVY, out)
+
+    -- ── heavy: JVM databases ──
+    -- Multi-gigabyte heaps. Other databases (postgres, mysql, redis) are omitted because
+    -- other services depend on them.
+    units({ "elasticsearch.service", "opensearch.service" }, "system-service", HEAVY, out)
+
+    return out
+end
+
+M.DEFAULT_TARGETS = buildDefaults()
 
 -- Every match string is interpolated into a shell command, so control characters are
 -- refused outright rather than escaped.

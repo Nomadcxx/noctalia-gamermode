@@ -55,10 +55,27 @@ local function respond(command)
     return { stdout = "" }
 end
 
+-- An explicit target list, so this suite exercises the runtime flow rather than whatever
+-- happens to ship as the defaults -- tests/defaults.lua owns those.
+local RUNTIME_TARGETS = table.concat({
+    '[{"match":"gslapper","kind":"process","action":"stop","profiles":["light","heavy"]}',
+    '{"match":"spotifyd.service","kind":"user-service","action":"stop","profiles":["light","heavy"]}',
+    '{"match":"adb","kind":"process","action":"stop","profiles":["light","heavy"]}',
+    '{"match":"kokoro-tts","kind":"container","action":"stop","profiles":["light","heavy"]}',
+    '{"match":"sonarr.service","kind":"system-service","action":"stop","profiles":["heavy"]}',
+    '{"match":"radarr.service","kind":"system-service","action":"stop","profiles":["heavy"]}]',
+}, ",")
+
 helpers.resetDir(DATA_DIR)
 local mock = helpers.newNoctalia({
     dataDir = DATA_DIR,
-    config = { profile = "light", auto_performance = true, poll_interval = "3", show_temps = true },
+    config = {
+        profile = "light",
+        auto_performance = true,
+        poll_interval = "3",
+        show_temps = true,
+        targets = RUNTIME_TARGETS,
+    },
     respond = respond,
 })
 
@@ -271,7 +288,7 @@ assert(math.abs(mock.published.metrics.cpuPerc - 0.1) < 0.0001, "update() polls 
 -- shells out to it, so gamer mode still works without power switching.
 local bareMock = helpers.newNoctalia({
     dataDir = DATA_DIR,
-    config = { profile = "light", auto_performance = true },
+    config = { profile = "light", auto_performance = true, targets = RUNTIME_TARGETS },
     respond = respond,
     missingCommands = { powerprofilesctl = true },
 })
