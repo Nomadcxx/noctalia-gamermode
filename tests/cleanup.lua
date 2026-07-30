@@ -133,4 +133,55 @@ mock.commands = {}
 noctalia.state.set("command", { nonce = 4, action = "cleanup", job = "shaders" })
 assert(helpers.ranCommand(mock, "rm -rf -- "), "the second job deletes")
 
+-- ── vendor coverage ──
+
+-- Which of these exists is the clearest sign of a machine's driver stack, so both vendors
+-- have to be represented or half the users get "No shader caches found."
+local VENDOR_CACHES = {
+    amd = { "/.cache/mesa_shader_cache", "/.cache/radv_builtin_shaders", "/.cache/AMD" },
+    nvidia = { "/.cache/nvidia/GLCache", "/.nv/GLCache" },
+    steam = { "/.local/share/Steam/steamapps/shadercache",
+              "/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/shadercache" },
+}
+
+for vendor, paths in pairs(VENDOR_CACHES) do
+    for _, suffix in ipairs(paths) do
+        local full = HOME .. suffix
+        os.execute("mkdir -p '" .. full .. "'")
+        local listed = false
+        for _, path in ipairs(svc.shaderCachePaths()) do
+            if path == full then
+                listed = true
+            end
+        end
+        assert(listed, vendor .. " cache not covered: " .. suffix)
+        os.execute("rm -rf '" .. full .. "'")
+    end
+end
+
+-- ── GPU driver daemons are protected ──
+
+-- Stopping one of these costs the thing gamer mode exists to protect: persistenced holds
+-- the driver state that keeps a card from reinitialising, powerd manages the power budget
+-- that lets it boost.
+for _, name in ipairs({
+    "nvidia-persistenced", "nvidia-powerd", "nvidia-suspend",
+    "amdgpu", "amd-pstate", "switcheroo-control",
+}) do
+    assert(svc.isDenied(name), name .. " must be protected")
+    assert(svc.isDenied(name .. ".service"), name .. ".service must be protected")
+    assert(svc.stopCmd({ kind = "system-service", match = name .. ".service" }) == nil,
+        "no stop command may be built for " .. name)
+    assert(svc.freezeCmd({ kind = "process", match = name }) == nil,
+        "no freeze command may be built for " .. name)
+end
+
+-- And a denied unit cannot sneak in through a batch, which is the path that elevates.
+local batched = svc.batchCmd("stop", {
+    { kind = "system-service", match = "nvidia-persistenced.service" },
+    { kind = "system-service", match = "sabnzbd.service" },
+})
+assert(batched and not batched:find("nvidia", 1, true), "a denied unit is dropped from the batch: " .. tostring(batched))
+assert(batched:find("sabnzbd", 1, true), "and the rest of the batch survives")
+
 print("cleanup: passed")

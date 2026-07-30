@@ -157,6 +157,18 @@ function M.buildRows(m, showTemps)
         detail = usedOfTotal(m.memUsedMb, m.memTotalMb),
     }
 
+    -- Swap only when the machine has some. A zero total is not a bar at 0%, it is a
+    -- machine with swap turned off, and drawing it would invite a reading that is not
+    -- there.
+    if m.swapTotalMb and m.swapTotalMb > 0 then
+        rows[#rows + 1] = {
+            label = "Swap",
+            glyph = "storage",
+            progress = clamp(m.swapPerc),
+            detail = usedOfTotal(m.swapUsedMb, m.swapTotalMb),
+        }
+    end
+
     if m.gpuAvailable and m.gpuPerc then
         rows[#rows + 1] = {
             label = "GPU",
@@ -174,6 +186,41 @@ function M.buildRows(m, showTemps)
         }
     end
     return rows
+end
+
+local function perSecond(bytes)
+    local value = tonumber(bytes) or 0
+    if value >= 1024 * 1024 then
+        return string.format("%.1f MB/s", value / (1024 * 1024))
+    elseif value >= 1024 then
+        return string.format("%.0f KB/s", value / 1024)
+    end
+    return string.format("%.0f B/s", value)
+end
+
+-- Readings that are not a proportion of anything. Load average needs a core count to
+-- become a percentage and the shell does not report one; a network rate has no ceiling to
+-- measure against. Both are shown as figures rather than invented into bars.
+function M.buildFigures(m)
+    local figures = {}
+    if type(m) ~= "table" or not m.available then
+        return figures
+    end
+    if m.load1 and m.load5 and m.load15 then
+        figures[#figures + 1] = {
+            label = tr("panel.load"),
+            glyph = "performance",
+            detail = string.format("%.2f   %.2f   %.2f", m.load1, m.load5, m.load15),
+        }
+    end
+    if m.netRxPerSec and m.netTxPerSec then
+        figures[#figures + 1] = {
+            label = tr("panel.network"),
+            glyph = "antenna-bars-5",
+            detail = perSecond(m.netRxPerSec) .. "   " .. perSecond(m.netTxPerSec),
+        }
+    end
+    return figures
 end
 
 function M.suspendedLines(gm)
@@ -257,13 +304,10 @@ local function metricRow(row)
         ui.row({ align = "center", gap = 8 }, {
             ui.glyph({ name = row.glyph, size = 14, color = "on_surface_variant" }),
             ui.label({ text = row.label, color = "on_surface_variant", width = 48 }),
-            ui.label({
-                text = row.detail,
-                color = "on_surface_variant",
-                fontSize = 11,
-                flexGrow = 1,
-                align = "end",
-            }),
+            -- A spacer pushes the detail right. `align` is not a label prop: setting it
+            -- left the text unaligned and the shell logged a warning on every render.
+            ui.spacer({ flexGrow = 1 }),
+            ui.label({ text = row.detail, color = "on_surface_variant", fontSize = 11 }),
         }),
         ui.progress({
             height = 4,
@@ -272,6 +316,15 @@ local function metricRow(row)
             track = "surface_variant",
             radius = 2,
         }),
+    })
+end
+
+local function figureRow(figure)
+    return ui.row({ align = "center", gap = 8 }, {
+        ui.glyph({ name = figure.glyph, size = 14, color = "on_surface_variant" }),
+        ui.label({ text = figure.label, color = "on_surface_variant", width = 48 }),
+        ui.spacer({ flexGrow = 1 }),
+        ui.label({ text = figure.detail, color = "on_surface_variant", fontSize = 11 }),
     })
 end
 
@@ -450,6 +503,9 @@ local function body()
         children[#children + 1] = sectionLabel("panel.performance")
         for _, row in ipairs(rows) do
             children[#children + 1] = metricRow(row)
+        end
+        for _, figure in ipairs(M.buildFigures(metrics)) do
+            children[#children + 1] = figureRow(figure)
         end
         if not metrics.gpuAvailable then
             children[#children + 1] = ui.label({

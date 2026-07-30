@@ -54,4 +54,64 @@ assert(sparse.cpuPerc == 0 and sparse.memPerc == 0 and sparse.gpuAvailable == fa
 local clamped = svc.normalize({ cpu = { usagePercent = 140 }, ram = { usagePercent = -5 }, gpu = {} })
 assert(clamped.cpuPerc == 1 and clamped.memPerc == 0, "percentages clamped to 0-1")
 
+-- ── vendor shapes ──
+
+-- GPU readings reach the shell through NVML for NVIDIA and sysfs for everything else, and
+-- the two do not report the same fields. Each shape has to degrade to "show what is there"
+-- rather than to a zero that reads as a real idle measurement.
+
+-- NVIDIA through NVML: usage, temperature and both halves of VRAM.
+local nvidia = svc.normalize({
+    cpu = { usagePercent = 10 },
+    ram = { usagePercent = 20, usedMb = 4096, totalMb = 32768 },
+    gpu = { usagePercent = 27, tempC = 60, vramUsedBytes = 1689911296, vramTotalBytes = 8585740288 },
+})
+assert(nvidia.gpuAvailable and nvidia.gpuPerc and nvidia.gpuTemp and nvidia.vramPerc, "nvidia reports everything")
+
+-- An AMD card whose sysfs exposes usage and temperature but no VRAM figures. The GPU row
+-- must still appear; only VRAM drops out.
+local amd = svc.normalize({
+    cpu = { usagePercent = 10 },
+    ram = { usagePercent = 20, usedMb = 4096, totalMb = 32768 },
+    gpu = { usagePercent = 44, tempC = 71 },
+})
+assert(amd.gpuAvailable == true, "an AMD card without vram figures is still a gpu")
+assert(math.abs(amd.gpuPerc - 0.44) < 0.0001, "amd usage, got " .. tostring(amd.gpuPerc))
+assert(amd.gpuTemp == 71, "amd temperature")
+assert(amd.vramUsedMb == nil and amd.vramPerc == nil, "no invented vram")
+
+-- Temperature only, which is all some integrated parts report.
+local intel = svc.normalize({ cpu = {}, ram = {}, gpu = { tempC = 49 } })
+assert(intel.gpuAvailable == true, "a temperature alone still counts as a gpu")
+assert(intel.gpuPerc == nil, "usage is not invented from a temperature")
+
+-- ── swap ──
+
+local swapped = svc.normalize({ cpu = {}, ram = {}, gpu = {}, swap = { usedMb = 2048, totalMb = 16384 } })
+assert(math.abs(swapped.swapPerc - 0.125) < 0.0001, "swap fraction, got " .. tostring(swapped.swapPerc))
+assert(swapped.swapUsedMb == 2048 and swapped.swapTotalMb == 16384, "swap figures carried through")
+
+-- Swap turned off reports a zero total, which is not a ratio. The row is dropped rather
+-- than drawn at nought percent.
+local noSwap = svc.normalize({ cpu = {}, ram = {}, gpu = {}, swap = { usedMb = 0, totalMb = 0 } })
+assert(noSwap.swapPerc == nil and noSwap.swapTotalMb == nil, "a zero swap total yields no reading")
+local absentSwap = svc.normalize({ cpu = {}, ram = {}, gpu = {} })
+assert(absentSwap.swapPerc == nil, "no swap table yields no reading")
+
+-- ── load average and network ──
+
+local loaded = svc.normalize({ cpu = {}, ram = {}, gpu = {}, loadAvg = { 2.1, 2.2, 1.64 } })
+assert(loaded.load1 == 2.1 and loaded.load5 == 2.2 and loaded.load15 == 1.64, "three load figures")
+
+-- A short or malformed array is dropped whole: a partial load average means nothing.
+local shortLoad = svc.normalize({ cpu = {}, ram = {}, gpu = {}, loadAvg = { 2.1 } })
+assert(shortLoad.load1 == nil, "a partial load average is dropped")
+
+local netted = svc.normalize({ cpu = {}, ram = {}, gpu = {}, net = { rxBytesPerSec = 3714, txBytesPerSec = 2140 } })
+assert(netted.netRxPerSec == 3714 and netted.netTxPerSec == 2140, "network totals carried through")
+
+-- Only one direction is not a reading.
+local halfNet = svc.normalize({ cpu = {}, ram = {}, gpu = {}, net = { rxBytesPerSec = 100 } })
+assert(halfNet.netRxPerSec == nil, "one direction alone is dropped")
+
 print("metrics: passed")

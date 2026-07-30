@@ -51,8 +51,10 @@
     "enable": "Enable",
     "frozen": "frozen",
     "gpu_unsupported": "GPU metrics unsupported",
+    "load": "Load",
     "metrics_unavailable": "System metrics unavailable",
     "mode_profile": "Suspend profile",
+    "network": "Net",
     "nothing_suspended": "Nothing suspended",
     "performance": "Performance",
     "power": {

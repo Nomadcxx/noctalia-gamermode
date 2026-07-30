@@ -64,6 +64,36 @@ function M.normalize(raw)
         metrics.gpuAvailable = true
     end
 
+    -- Swap reports used and total but no percentage of its own, and a machine with swap
+    -- turned off reports a total of zero, which is a ratio with no meaning.
+    local swap = type(raw.swap) == "table" and raw.swap or {}
+    local swapUsed = tonumber(swap.usedMb)
+    local swapTotal = tonumber(swap.totalMb)
+    if swapUsed and swapTotal and swapTotal > 0 then
+        metrics.swapUsedMb = swapUsed
+        metrics.swapTotalMb = swapTotal
+        metrics.swapPerc = math.max(0, math.min(1, swapUsed / swapTotal))
+    end
+
+    -- Load average arrives as a three-element array. It is not a percentage of anything
+    -- without a core count, so it is carried through as numbers and shown as numbers.
+    if type(raw.loadAvg) == "table" then
+        local one, five, fifteen = tonumber(raw.loadAvg[1]), tonumber(raw.loadAvg[2]), tonumber(raw.loadAvg[3])
+        if one and five and fifteen then
+            metrics.load1, metrics.load5, metrics.load15 = one, five, fifteen
+        end
+    end
+
+    -- Totals across every interface. The per-interface breakdown is left alone: on a
+    -- machine running containers it is mostly bridges and veth pairs.
+    local net = type(raw.net) == "table" and raw.net or {}
+    local rx = tonumber(net.rxBytesPerSec)
+    local tx = tonumber(net.txBytesPerSec)
+    if rx and tx then
+        metrics.netRxPerSec = math.max(0, rx)
+        metrics.netTxPerSec = math.max(0, tx)
+    end
+
     return metrics
 end
 
@@ -104,6 +134,12 @@ for _, name in ipairs({
     -- the game stack itself
     "steam", "steamwebhelper", "gamescope", "wine", "wineserver", "proton",
     "lutris", "heroic", "bottles", "gamemoded",
+    -- GPU driver daemons. Stopping one of these mid-session costs the thing gamer mode
+    -- exists to protect: nvidia-persistenced holds the driver state that keeps a card
+    -- from reinitialising, and nvidia-powerd manages the dynamic power budget that lets
+    -- it reach its boost clocks.
+    "nvidia-persistenced", "nvidia-powerd", "nvidia-suspend", "nvidia-resume",
+    "nvidia-hibernate", "amdgpu", "amd-pstate", "switcheroo-control",
 }) do
     DENIED[name] = true
 end
@@ -1395,12 +1431,25 @@ end
 -- Shader caches, in the locations the drivers and Steam actually use. Deleting one costs
 -- a slower first launch while it recompiles and nothing else, which is the trade people
 -- want after a driver update leaves stale shaders behind.
+-- Covering both vendors, because which of these exists is the clearest sign of which
+-- driver stack a machine runs.
 local SHADER_CACHES = {
+    -- Mesa: AMD radeonsi and RADV, Intel, and the software rasterisers. The _db suffix is
+    -- the newer single-file format; a machine mid-upgrade has both.
     "~/.cache/mesa_shader_cache",
     "~/.cache/mesa_shader_cache_db",
-    "~/.cache/nvidia/GLCache",
     "~/.cache/radv_builtin_shaders",
+    -- AMDVLK and the AMD Pro stack keep their own, separate from Mesa's.
+    "~/.cache/AMD",
+    -- NVIDIA moved GLCache from ~/.nv to ~/.cache/nvidia. Drivers old enough to use the
+    -- first are still in service, so both are listed.
+    "~/.cache/nvidia/GLCache",
+    "~/.nv/GLCache",
+    -- Steam's own, for the native package and the Flatpak. A library on a second drive
+    -- keeps its shadercache beside it and is not covered: finding those means parsing
+    -- libraryfolders.vdf, which is more machinery than this is worth.
     "~/.local/share/Steam/steamapps/shadercache",
+    "~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/shadercache",
 }
 
 -- Every path is expanded from the fixed list above and then checked to be under the home
