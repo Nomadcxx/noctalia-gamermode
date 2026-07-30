@@ -172,6 +172,88 @@ function M.targetsForProfile(targets, profile)
     return out
 end
 
+-- ── shell commands per target kind ──
+
+-- shellQuote returns nil for anything that cannot be represented safely, and every
+-- command builder propagates that nil rather than emitting a half-quoted command.
+local function shellQuote(value)
+    if not validateShellValue(value) then
+        return nil
+    end
+    return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+M.shellQuote = shellQuote
+
+-- Probes read state only, so none of them needs elevation -- `systemctl is-active`
+-- works unprivileged even for system units.
+function M.probeCmd(target)
+    local match = shellQuote(target.match)
+    if not match then
+        return nil
+    end
+    if target.kind == "process" then
+        return "pgrep -x " .. match
+    elseif target.kind == "user-service" then
+        return "systemctl --user is-active " .. match
+    elseif target.kind == "system-service" then
+        return "systemctl is-active " .. match
+    elseif target.kind == "container" then
+        return "docker inspect -f '{{.State.Running}}' " .. match
+    end
+    return nil
+end
+
+function M.stopCmd(target)
+    local match = shellQuote(target.match)
+    if not match then
+        return nil
+    end
+    if target.kind == "process" then
+        return "pkill -x " .. match
+    elseif target.kind == "user-service" then
+        return "systemctl --user stop " .. match
+    elseif target.kind == "system-service" then
+        -- `-n` fails immediately instead of prompting: a bar click must never block on a
+        -- password. Without a NOPASSWD rule the target is skipped and logged.
+        return "sudo -n systemctl stop " .. match
+    elseif target.kind == "container" then
+        return "docker stop " .. match
+    end
+    return nil
+end
+
+-- Processes have no generic start: a bare process name carries no argv, environment or
+-- working directory, so gamer mode cannot honestly relaunch one. Users who need a
+-- process brought back should target the unit that supervises it instead.
+function M.startCmd(target)
+    local match = shellQuote(target.match)
+    if not match then
+        return nil
+    end
+    if target.kind == "user-service" then
+        return "systemctl --user start " .. match
+    elseif target.kind == "system-service" then
+        return "sudo -n systemctl start " .. match
+    elseif target.kind == "container" then
+        return "docker start " .. match
+    end
+    return nil
+end
+
+-- wasState maps probe stdout to the state recorded in the snapshot. Only "running" and
+-- "active" count as up; everything else -- including transitional states and any output
+-- that could not be read -- is "down", so nothing gets restarted on a guess.
+function M.wasState(kind, output)
+    local text = (tostring(output or "")):gsub("%s+", "")
+    if kind == "process" then
+        return text ~= "" and "running" or "down"
+    elseif kind == "container" then
+        return text == "true" and "running" or "down"
+    end
+    return text == "active" and "active" or "down"
+end
+
 -- ── session snapshot ──
 
 local SNAPSHOT_VERSION = 1

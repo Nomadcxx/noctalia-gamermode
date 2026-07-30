@@ -1,0 +1,94 @@
+-- Shell command construction per target kind, and the mapping from command output back
+-- to a recorded state.
+package.path = "./tests/?.lua;" .. package.path
+local helpers = require("helpers")
+
+helpers.newNoctalia()
+local svc = dofile("gamermode/service.luau")
+
+-- Probes.
+assert(svc.probeCmd({ kind = "process", match = "gslapper" }) == "pgrep -x 'gslapper'", "probe process")
+assert(
+    svc.probeCmd({ kind = "user-service", match = "a.service" }) == "systemctl --user is-active 'a.service'",
+    "probe user service"
+)
+assert(
+    svc.probeCmd({ kind = "system-service", match = "a.service" }) == "systemctl is-active 'a.service'",
+    "probe system service"
+)
+assert(
+    svc.probeCmd({ kind = "container", match = "x" }) == "docker inspect -f '{{.State.Running}}' 'x'",
+    "probe container"
+)
+
+-- Probing a system service needs no sudo: is-active is readable unprivileged.
+assert(not svc.probeCmd({ kind = "system-service", match = "a.service" }):find("sudo", 1, true), "probe needs no sudo")
+
+-- Stops.
+assert(svc.stopCmd({ kind = "process", match = "gslapper" }) == "pkill -x 'gslapper'", "stop process")
+assert(
+    svc.stopCmd({ kind = "user-service", match = "a.service" }) == "systemctl --user stop 'a.service'",
+    "stop user service"
+)
+assert(
+    svc.stopCmd({ kind = "system-service", match = "a.service" }) == "sudo -n systemctl stop 'a.service'",
+    "stop system service"
+)
+assert(svc.stopCmd({ kind = "container", match = "x" }) == "docker stop 'x'", "stop container")
+
+-- Starts. Processes have no generic relaunch: gamer mode does not know the argv, the
+-- environment or the working directory a bare process name was started with.
+assert(
+    svc.startCmd({ kind = "user-service", match = "a.service" }) == "systemctl --user start 'a.service'",
+    "start user service"
+)
+assert(
+    svc.startCmd({ kind = "system-service", match = "a.service" }) == "sudo -n systemctl start 'a.service'",
+    "start system service"
+)
+assert(svc.startCmd({ kind = "container", match = "x" }) == "docker start 'x'", "start container")
+assert(svc.startCmd({ kind = "process", match = "gslapper" }) == nil, "processes have no generic start")
+
+-- System-service writes go through `sudo -n`, which fails immediately rather than
+-- prompting for a password from a bar click.
+assert(svc.stopCmd({ kind = "system-service", match = "a" }):find("sudo -n ", 1, true) == 1, "stop uses sudo -n")
+assert(svc.startCmd({ kind = "system-service", match = "a" }):find("sudo -n ", 1, true) == 1, "start uses sudo -n")
+
+-- Unknown kinds build nothing.
+assert(svc.probeCmd({ kind = "bogus", match = "x" }) == nil, "unknown kind probes nothing")
+assert(svc.stopCmd({ kind = "bogus", match = "x" }) == nil, "unknown kind stops nothing")
+assert(svc.startCmd({ kind = "bogus", match = "x" }) == nil, "unknown kind starts nothing")
+
+-- Quoting: an apostrophe is closed, escaped and reopened.
+assert(svc.probeCmd({ kind = "process", match = "a'b" }) == "pgrep -x 'a'\\''b'", "apostrophe quoted")
+assert(svc.stopCmd({ kind = "container", match = "a'b" }) == "docker stop 'a'\\''b'", "apostrophe quoted in stop")
+assert(svc.probeCmd({ kind = "process", match = "a; rm -rf /" }) == "pgrep -x 'a; rm -rf /'", "metacharacters inert")
+
+-- Control characters cannot be quoted safely, so nothing is built at all.
+assert(svc.probeCmd({ kind = "process", match = "a\nb" }) == nil, "newline refused")
+assert(svc.stopCmd({ kind = "process", match = "a\nb" }) == nil, "newline refused in stop")
+assert(svc.startCmd({ kind = "container", match = "a\rb" }) == nil, "carriage return refused")
+assert(svc.probeCmd({ kind = "process", match = "" }) == nil, "empty match refused")
+
+-- Probe output to recorded state.
+assert(svc.wasState("process", "123\n124\n") == "running", "pids mean running")
+assert(svc.wasState("process", "") == "down", "no pids mean down")
+assert(svc.wasState("process", "\n  \n") == "down", "whitespace-only output means down")
+assert(svc.wasState("process", nil) == "down", "absent output means down")
+
+assert(svc.wasState("user-service", "active") == "active", "active")
+assert(svc.wasState("user-service", "active\n") == "active", "trailing newline trimmed")
+assert(svc.wasState("user-service", "inactive") == "down", "inactive means down")
+assert(svc.wasState("user-service", "failed") == "down", "failed means down")
+assert(svc.wasState("system-service", "active") == "active", "system service active")
+
+-- `systemctl is-active` reports "activating"/"deactivating" mid-transition. Those are
+-- not recorded as up: restoring something that was only half-started is worse than
+-- leaving it, and the stop below will settle it either way.
+assert(svc.wasState("user-service", "activating") == "down", "activating is not recorded as up")
+
+assert(svc.wasState("container", "true") == "running", "docker true")
+assert(svc.wasState("container", "false") == "down", "docker false")
+assert(svc.wasState("container", "") == "down", "missing container means down")
+
+print("commands: passed")
