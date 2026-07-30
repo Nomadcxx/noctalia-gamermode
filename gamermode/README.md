@@ -11,7 +11,7 @@ background resource hogs and restores what was running before.
 | Field | Value |
 | --- | --- |
 | ID | `nomadcxx/gamermode` |
-| Entries | Bar widget: `bar`; panel: `main`; service: `service` |
+| Entries | Bar widget: `gamermode`; panel: `main`; service: `service` |
 
 ## Requirements
 

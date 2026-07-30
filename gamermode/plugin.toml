@@ -90,5 +90,5 @@ position = "auto"
 keyboard_focus = "on_demand"
 
 [[widget]]
-id = "bar"
+id = "gamermode"
 entry = "widget.luau"
