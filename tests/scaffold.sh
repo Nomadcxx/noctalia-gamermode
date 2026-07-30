@@ -52,6 +52,49 @@ assert(checked >= 18, "expected the manifest to declare translated settings, saw
 assert(lookup("panel.title") and lookup("notify.enabled_title"), "panel/notify strings missing")
 '
 
+# Panel cross-field rules, copied from the shell's own manifest validator
+# (src/scripting/plugin_manifest.cpp). Breaking one of these makes the shell reject the
+# whole manifest at load, and the plugin then cannot be enabled at all -- the export
+# aborts partway and nothing materialises, so it is worth catching here.
+lua -e '
+local manifest = assert(io.open("gamermode/plugin.toml")):read("*a")
+
+local VALID_FOCUS = { on_demand = true, exclusive = true, none = true }
+
+-- Split the manifest into [[panel]] blocks so each entry is checked on its own.
+local panels = {}
+for block in (manifest .. "\n[["):gmatch("%[%[panel%]%](.-)\n%[%[") do
+    panels[#panels + 1] = block
+end
+assert(#panels > 0, "no [[panel]] entry found")
+
+local function field(block, key)
+    return block:match("\n%s*" .. key .. "%s*=%s*\"([^\"]+)\"")
+        or block:match("\n%s*" .. key .. "%s*=%s*(%a+)")
+end
+
+for _, block in ipairs(panels) do
+    local id = field(block, "id") or "?"
+    local focus = field(block, "keyboard_focus")
+    -- The shell defaults dismiss_on_outside_click to TRUE, so an absent key means true.
+    local dismiss = field(block, "dismiss_on_outside_click")
+    local dismisses = dismiss ~= "false"
+    local persistent = field(block, "persistent") == "true"
+
+    if focus then
+        assert(VALID_FOCUS[focus], "panel " .. id .. ": keyboard_focus must be on_demand, exclusive or none")
+        -- Outside-click dismissal needs either a click shield or a focus grab, and a
+        -- panel that never takes focus can have neither.
+        assert(not (focus == "none" and dismisses),
+            "panel " .. id .. ": keyboard_focus = \"none\" requires dismiss_on_outside_click = false")
+    end
+    if persistent then
+        assert(not dismisses, "panel " .. id .. ": persistent = true requires dismiss_on_outside_click = false")
+        assert(focus ~= "exclusive", "panel " .. id .. ": persistent = true conflicts with keyboard_focus exclusive")
+    end
+end
+'
+
 # catalog.toml is what the plugin browser reads, so it must not drift from the manifest.
 if [ -f catalog.toml ]; then
     for key in id name version author license icon description plugin_api; do

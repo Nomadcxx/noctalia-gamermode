@@ -83,7 +83,11 @@ width = 420
 height = 560
 placement = "attached"
 position = "auto"
-keyboard_focus = "none"
+# "on_demand" takes keyboard focus only when you click inside the panel, so opening it
+# from the bar leaves focus where it was. "none" would refuse focus entirely, but the
+# shell requires dismiss_on_outside_click = false alongside it, which would leave the
+# panel on screen until you click the bar icon again.
+keyboard_focus = "on_demand"
 
 [[widget]]
 id = "bar"
