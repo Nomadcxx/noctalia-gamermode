@@ -1386,6 +1386,215 @@ function M.toggle(profileOverride)
     end
 end
 
+-- ── maintenance ──
+--
+-- One-shot cleanups, run on demand from the panel rather than as part of gamer mode.
+-- Nothing here is undone by disabling gamer mode: a deleted cache is gone and a dropped
+-- page cache refills on its own, so none of it belongs in the session snapshot.
+
+-- Shader caches, in the locations the drivers and Steam actually use. Deleting one costs
+-- a slower first launch while it recompiles and nothing else, which is the trade people
+-- want after a driver update leaves stale shaders behind.
+local SHADER_CACHES = {
+    "~/.cache/mesa_shader_cache",
+    "~/.cache/mesa_shader_cache_db",
+    "~/.cache/nvidia/GLCache",
+    "~/.cache/radv_builtin_shaders",
+    "~/.local/share/Steam/steamapps/shadercache",
+}
+
+-- Every path is expanded from the fixed list above and then checked to be under the home
+-- directory. The list is not user-supplied today, and this makes sure a future setting
+-- cannot turn `rm -rf` on something outside it.
+function M.shaderCachePaths()
+    local home = noctalia.expandPath("~")
+    if not home or home == "" or home == "/" then
+        return {}
+    end
+    local prefix = home:sub(-1) == "/" and home or (home .. "/")
+    local found = {}
+    for _, entry in ipairs(SHADER_CACHES) do
+        local path = noctalia.expandPath(entry)
+        if type(path) == "string" and path:sub(1, #prefix) == prefix and noctalia.fileExists(path) then
+            found[#found + 1] = path
+        end
+    end
+    return found
+end
+
+function M.shaderSizeCmd(paths)
+    if not paths or #paths == 0 then
+        return nil
+    end
+    local quoted = {}
+    for _, path in ipairs(paths) do
+        quoted[#quoted + 1] = shellQuote(path)
+    end
+    -- -c adds a grand total as the last line; -s keeps each argument to one line.
+    return "du -sbc " .. table.concat(quoted, " ") .. " | tail -1 | cut -f1"
+end
+
+function M.shaderClearCmd(paths)
+    if not paths or #paths == 0 then
+        return nil
+    end
+    local quoted = {}
+    for _, path in ipairs(paths) do
+        quoted[#quoted + 1] = shellQuote(path)
+    end
+    -- `--` stops a path that begins with a dash being read as an option.
+    return "rm -rf -- " .. table.concat(quoted, " ")
+end
+
+-- sysctl writes /proc/sys/vm/drop_caches without needing a root shell, so the elevated
+-- half stays a single fixed argv with nothing interpolated into it.
+function M.dropCachesCmd()
+    return "pkexec /usr/bin/sysctl -w vm.drop_caches=3"
+end
+
+-- swapoff has to complete before swapon starts, which needs the two joined. The string is
+-- a fixed literal: nothing the user controls reaches it.
+function M.reclaimSwapCmd()
+    return "pkexec /bin/sh -c 'swapoff -a && swapon -a'"
+end
+
+-- Reclaiming swap reads every swapped page back into RAM. If it does not fit, swapoff
+-- fails partway or the machine starts killing things, so the check runs first.
+function M.canReclaimSwap(raw)
+    local swap = type(raw) == "table" and type(raw.swap) == "table" and raw.swap or nil
+    local ram = type(raw) == "table" and type(raw.ram) == "table" and raw.ram or nil
+    local swapUsed = swap and tonumber(swap.usedMb)
+    if not swapUsed then
+        return false, "swap_unknown"
+    end
+    if swapUsed <= 0 then
+        return false, "swap_empty"
+    end
+    local total = ram and tonumber(ram.totalMb)
+    local used = ram and tonumber(ram.usedMb)
+    if not total or not used then
+        return false, "swap_unknown"
+    end
+    -- A tenth of RAM in headroom, so this does not succeed straight into an out-of-memory
+    -- kill of the game it was meant to help.
+    if swapUsed > (total - used) - (total * 0.1) then
+        return false, "swap_no_room"
+    end
+    return true
+end
+
+local cleanupJob = nil
+local shaderSize = nil
+
+local function publishCleanup(message, ok)
+    noctalia.state.set("cleanup", {
+        running = cleanupJob,
+        message = message,
+        ok = ok,
+        shaderSize = shaderSize,
+    })
+end
+
+local function finishCleanup(messageKey, ok, subst)
+    cleanupJob = nil
+    publishCleanup(subst and noctalia.tr(messageKey, subst) or noctalia.tr(messageKey), ok)
+end
+
+-- Measuring is its own job because the panel arms the delete before performing it, and a
+-- confirmation that names a size is worth the round trip. Nothing is removed here.
+local function measureShaderCaches()
+    local paths = M.shaderCachePaths()
+    if #paths == 0 then
+        shaderSize = nil
+        finishCleanup("cleanup.shaders_none", true)
+        return
+    end
+    run(M.shaderSizeCmd(paths), function(result)
+        shaderSize = M.humanBytes(tonumber(trim(result and result.stdout)) or 0)
+        finishCleanup("cleanup.shaders_confirm", nil, { size = shaderSize })
+    end)
+end
+
+local function clearShaderCaches()
+    local paths = M.shaderCachePaths()
+    if #paths == 0 then
+        shaderSize = nil
+        finishCleanup("cleanup.shaders_none", true)
+        return
+    end
+    local removed = shaderSize
+    run(M.shaderClearCmd(paths), function(result)
+        if succeeded(result) then
+            shaderSize = nil
+            finishCleanup("cleanup.shaders_done", true, { size = removed or "?" })
+        else
+            noctalia.log("gamermode: could not clear shader caches: " .. describeFailure(result))
+            finishCleanup("cleanup.failed", false)
+        end
+    end)
+end
+
+local function dropPageCache()
+    -- sync first so dirty pages are written out; dropping them unwritten would lose data.
+    run("sync", function()
+        run(M.dropCachesCmd(), function(result)
+            if succeeded(result) then
+                finishCleanup("cleanup.pagecache_done", true)
+            else
+                noctalia.log("gamermode: could not drop the page cache: " .. describeFailure(result))
+                finishCleanup("cleanup.failed", false)
+            end
+        end, true)
+    end)
+end
+
+local function reclaimSwap()
+    local ok, reason = M.canReclaimSwap(noctalia.systemStats())
+    if not ok then
+        finishCleanup("cleanup." .. reason, false)
+        return
+    end
+    run(M.reclaimSwapCmd(), function(result)
+        if succeeded(result) then
+            finishCleanup("cleanup.swap_done", true)
+        else
+            noctalia.log("gamermode: could not reclaim swap: " .. describeFailure(result))
+            finishCleanup("cleanup.failed", false)
+        end
+    end, true)
+end
+
+local CLEANUP_JOBS = {
+    ["shaders-measure"] = measureShaderCaches,
+    shaders = clearShaderCaches,
+    pagecache = dropPageCache,
+    swap = reclaimSwap,
+}
+
+function M.humanBytes(bytes)
+    local value = tonumber(bytes) or 0
+    if value >= 1024 * 1024 * 1024 then
+        return string.format("%.1f GiB", value / (1024 * 1024 * 1024))
+    elseif value >= 1024 * 1024 then
+        return string.format("%.0f MiB", value / (1024 * 1024))
+    end
+    return string.format("%.0f KiB", value / 1024)
+end
+
+function M.runCleanup(job)
+    if cleanupJob then
+        return
+    end
+    local runner = CLEANUP_JOBS[job]
+    if not runner then
+        noctalia.log("gamermode: ignoring an unknown cleanup job " .. tostring(job))
+        return
+    end
+    cleanupJob = job
+    publishCleanup(noctalia.tr("cleanup.running"), nil)
+    runner()
+end
+
 -- ── commands ──
 
 -- Commands arrive as `command` state writes from the panel and widget. The nonce makes
@@ -1412,6 +1621,8 @@ function M.handleCommand(command)
         M.disable()
     elseif action == "set-power-profile" then
         M.setPowerProfile(command.profile)
+    elseif action == "cleanup" then
+        M.runCleanup(command.job)
     else
         noctalia.log("gamermode: unknown command action " .. tostring(action))
     end

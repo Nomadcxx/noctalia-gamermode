@@ -13,7 +13,93 @@ local M = {}
 local metrics = noctalia.state.get("metrics") or { available = false }
 local gameMode = noctalia.state.get("game_mode") or { enabled = false, busy = false, suspended = {} }
 local power = noctalia.state.get("power") or { available = false, profiles = {} }
+local cleanup = noctalia.state.get("cleanup") or {}
 local nonceCounter = 0
+
+-- The logo is embedded rather than read from the plugin directory because there is no API
+-- that reports where that directory is: the materialised path contains the name of the
+-- source the plugin was installed from, which differs per machine. The data directory is
+-- reported, so the file is written there once and referenced from disk.
+--
+-- gamer-mode/logo.svg holds the same bytes and is the copy to edit; tests/logo.lua fails
+-- if the two drift apart.
+local LOGO_SVG = [==[
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="outerFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#C0392B"/>
+      <stop offset="100%" stop-color="#E74C3C"/>
+    </linearGradient>
+    <linearGradient id="midFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#E67E22"/>
+      <stop offset="100%" stop-color="#F39C12"/>
+    </linearGradient>
+    <linearGradient id="innerFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#F1C40F"/>
+      <stop offset="100%" stop-color="#FFEB3B"/>
+    </linearGradient>
+  </defs>
+
+  <path fill="url(#outerFlame)" d="M 120 280 C 100 220, 110 170, 150 130 C 170 110, 180 70, 170 40 C 210 70, 230 110, 240 150 C 260 100, 290 60, 330 80 C 370 100, 360 150, 390 180 C 410 200, 420 240, 390 290 Z"/>
+  <path fill="url(#midFlame)" d="M 140 280 C 130 230, 145 190, 175 160 C 195 140, 210 100, 210 80 C 235 115, 250 150, 265 175 C 285 130, 315 105, 340 120 C 370 140, 355 185, 375 210 C 390 230, 395 260, 375 290 Z"/>
+  <path fill="url(#innerFlame)" d="M 170 280 C 160 240, 180 210, 200 185 C 215 165, 225 130, 230 115 C 245 145, 260 175, 275 195 C 290 160, 310 145, 325 155 C 345 170, 335 210, 350 235 C 360 250, 360 270, 345 280 Z"/>
+
+  <rect x="90" y="235" width="16" height="175" rx="4" fill="#7F8C8D"/>
+  <rect x="84" y="245" width="6" height="25" rx="2" fill="#95A5A6"/>
+  <rect x="84" y="365" width="6" height="25" rx="2" fill="#95A5A6"/>
+
+  <rect x="160" y="395" width="170" height="20" rx="2" fill="#1B2631"/>
+  <path fill="#F1C40F" d="M 170 398 h 8 v 12 h -8 z M 183 398 h 8 v 12 h -8 z M 196 398 h 8 v 12 h -8 z M 209 398 h 8 v 12 h -8 z M 222 398 h 8 v 12 h -8 z M 235 398 h 8 v 12 h -8 z M 253 398 h 8 v 12 h -8 z M 266 398 h 8 v 12 h -8 z M 279 398 h 8 v 12 h -8 z M 292 398 h 8 v 12 h -8 z M 305 398 h 8 v 12 h -8 z M 318 398 h 8 v 12 h -8 z"/>
+
+  <rect x="104" y="245" width="290" height="150" rx="14" fill="#2C3E50"/>
+  <rect x="114" y="255" width="270" height="130" rx="10" fill="#34495E"/>
+
+  <path stroke="#1ABC9C" stroke-width="4" stroke-linecap="round" fill="none" d="M 125 267 L 373 267"/>
+  <path stroke="#1ABC9C" stroke-width="4" stroke-linecap="round" fill="none" d="M 125 373 L 373 373"/>
+
+  <circle cx="185" cy="320" r="48" fill="#1A252F"/>
+  <circle cx="185" cy="320" r="42" fill="#2C3E50"/>
+  <g fill="#1A252F">
+    <path d="M 185 320 L 175 282 A 42 42 0 0 1 195 282 Z"/>
+    <path d="M 185 320 L 223 310 A 42 42 0 0 1 223 330 Z"/>
+    <path d="M 185 320 L 195 358 A 42 42 0 0 1 175 358 Z"/>
+    <path d="M 185 320 L 147 330 A 42 42 0 0 1 147 310 Z"/>
+  </g>
+  <circle cx="185" cy="320" r="16" fill="#34495E"/>
+  <circle cx="185" cy="320" r="8" fill="#7F8C8D"/>
+
+  <circle cx="313" cy="320" r="48" fill="#1A252F"/>
+  <circle cx="313" cy="320" r="42" fill="#2C3E50"/>
+  <g fill="#1A252F">
+    <path d="M 313 320 L 303 282 A 42 42 0 0 1 323 282 Z"/>
+    <path d="M 313 320 L 351 310 A 42 42 0 0 1 351 330 Z"/>
+    <path d="M 313 320 L 323 358 A 42 42 0 0 1 303 358 Z"/>
+    <path d="M 313 320 L 275 330 A 42 42 0 0 1 275 310 Z"/>
+  </g>
+  <circle cx="313" cy="320" r="16" fill="#34495E"/>
+  <circle cx="313" cy="320" r="8" fill="#7F8C8D"/>
+
+  <circle cx="130" cy="110" r="4" fill="#FFEB3B"/>
+  <circle cx="380" cy="130" r="5" fill="#F39C12"/>
+  <circle cx="280" cy="50" r="3" fill="#FFEB3B"/>
+  <circle cx="200" cy="40" r="4" fill="#E74C3C"/>
+</svg>
+]==]
+
+local function logoPath()
+    local directory = noctalia.pluginDataDir()
+    if not directory then
+        return nil
+    end
+    local path = directory .. "/logo.svg"
+    if not noctalia.fileExists(path) then
+        if not noctalia.writeFile(path, LOGO_SVG) then
+            noctalia.log("gamermode: could not write the panel logo")
+            return nil
+        end
+    end
+    return path
+end
 
 local function tr(key, subst)
     return noctalia.tr(key, subst)
@@ -196,14 +282,85 @@ local function toggleButton()
 end
 
 local function header()
-    return ui.row({ align = "center", gap = 8 }, {
-        ui.glyph({ name = "device-gamepad-2", size = 18, color = gameMode.enabled and "primary" or "on_surface" }),
-        ui.label({ text = tr("panel.title"), fontSize = 16, fontWeight = "bold", flexGrow = 1 }),
+    local logo = logoPath()
+    local mark = logo
+            and ui.image({ path = logo, width = 34, height = 34, fit = "contain" })
+        -- The glyph is the fallback for the one case that can fail: no plugin data
+        -- directory to write the logo into.
+        or ui.glyph({ name = "device-gamepad-2", size = 22, color = "primary" })
+
+    return ui.row({ align = "center", gap = 10 }, {
+        mark,
+        ui.column({ gap = 0, flexGrow = 1 }, {
+            ui.label({ text = tr("panel.title"), fontSize = 17, fontWeight = "bold" }),
+            ui.label({
+                text = gameMode.enabled and tr("panel.state_on") or tr("panel.state_off"),
+                fontSize = 11,
+                color = gameMode.enabled and "primary" or "on_surface_variant",
+            }),
+        }),
         toggleButton(),
         -- The panel also dismisses on an outside click, but a visible control is the one
         -- people look for, and every other panel in the shell has one.
         ui.button({ glyph = "close", variant = "ghost", tooltip = tr("panel.close"), onClick = "onCloseClicked" }),
     })
+end
+
+-- ── maintenance ──
+
+-- Deleting the shader caches is the one action here that destroys something, so the button
+-- asks first and names the size it is about to remove.
+local shadersArmed = false
+
+local function maintenanceSection(children)
+    children[#children + 1] = ui.separator({})
+    children[#children + 1] = ui.label({
+        text = tr("cleanup.title"),
+        color = "on_surface_variant",
+        fontSize = 12,
+        fontWeight = "bold",
+    })
+
+    local working = cleanup.running ~= nil
+    children[#children + 1] = ui.row({ gap = 8 }, {
+        ui.button({
+            -- The size arrives from the service, which measured it when the button armed.
+            text = shadersArmed and tr("cleanup.shaders_confirm", { size = cleanup.shaderSize or "?" })
+                or tr("cleanup.shaders"),
+            glyph = shadersArmed and "alert-triangle" or "storage",
+            variant = shadersArmed and "primary" or "ghost",
+            selected = shadersArmed,
+            enabled = not working,
+            flexGrow = 1,
+            onClick = "onClearShaders",
+        }),
+    })
+    children[#children + 1] = ui.row({ gap = 8 }, {
+        ui.button({
+            text = tr("cleanup.pagecache"),
+            glyph = "memory",
+            variant = "ghost",
+            enabled = not working,
+            flexGrow = 1,
+            onClick = "onDropPageCache",
+        }),
+        ui.button({
+            text = tr("cleanup.swap"),
+            glyph = "performance",
+            variant = "ghost",
+            enabled = not working,
+            flexGrow = 1,
+            onClick = "onReclaimSwap",
+        }),
+    })
+
+    if type(cleanup.message) == "string" and cleanup.message ~= "" then
+        children[#children + 1] = ui.label({
+            text = cleanup.message,
+            fontSize = 11,
+            color = cleanup.ok == false and "error" or "on_surface_variant",
+        })
+    end
 end
 
 local function powerRow()
@@ -245,18 +402,27 @@ local function modeProfileRow()
     })
 end
 
+local function sectionLabel(key, count)
+    local text = tr(key)
+    if count then
+        text = text .. "  (" .. tostring(count) .. ")"
+    end
+    return ui.label({ text = text, color = "on_surface_variant", fontSize = 12, fontWeight = "bold" })
+end
+
 local function suspendedSection(children)
     if not gameMode.enabled then
         return
     end
-    children[#children + 1] = ui.label({ text = tr("panel.suspended"), color = "on_surface_variant", fontSize = 12 })
+    children[#children + 1] = ui.separator({})
     local lines = M.suspendedLines(gameMode)
+    children[#children + 1] = sectionLabel("panel.suspended", #lines > 0 and #lines or nil)
     if #lines == 0 then
         children[#children + 1] = ui.label({ text = tr("panel.nothing_suspended"), fontSize = 11 })
         return
     end
     for _, line in ipairs(lines) do
-        children[#children + 1] = ui.label({ text = line, fontSize = 11 })
+        children[#children + 1] = ui.label({ text = line, fontSize = 11, color = "on_surface_variant" })
     end
 end
 
@@ -272,11 +438,7 @@ local function body()
             fontSize = 11,
         })
     else
-        children[#children + 1] = ui.label({
-            text = tr("panel.performance"),
-            color = "on_surface_variant",
-            fontSize = 12,
-        })
+        children[#children + 1] = sectionLabel("panel.performance")
         for _, row in ipairs(rows) do
             children[#children + 1] = metricRow(row)
         end
@@ -293,8 +455,9 @@ local function body()
     children[#children + 1] = powerRow()
     children[#children + 1] = modeProfileRow()
     suspendedSection(children)
+    maintenanceSection(children)
 
-    return ui.column({ gap = 10, flexGrow = 1 }, children)
+    return ui.column({ gap = 12, flexGrow = 1 }, children)
 end
 
 local function footer()
@@ -305,9 +468,9 @@ local function footer()
 end
 
 local function render()
-    panel.render(ui.column({ padding = 16, gap = 10, flexGrow = 1 }, {
+    panel.render(ui.column({ padding = 20, gap = 14, flexGrow = 1 }, {
         header(),
-        ui.scroll({ flexGrow = 1, gap = 10 }, { body() }),
+        ui.scroll({ flexGrow = 1, gap = 12 }, { body() }),
         footer(),
     }))
 end
@@ -355,6 +518,32 @@ function onOpenSettings()
     noctalia.openSettings()
 end
 
+-- The first click measures and arms; the second deletes. Anything else the user does in
+-- the panel is a chance to have changed their mind, so the arming does not persist past a
+-- different cleanup being started.
+function onClearShaders()
+    if shadersArmed then
+        shadersArmed = false
+        sendCommand("cleanup", { job = "shaders" })
+    else
+        shadersArmed = true
+        sendCommand("cleanup", { job = "shaders-measure" })
+    end
+    render()
+end
+
+function onDropPageCache()
+    shadersArmed = false
+    sendCommand("cleanup", { job = "pagecache" })
+    render()
+end
+
+function onReclaimSwap()
+    shadersArmed = false
+    sendCommand("cleanup", { job = "swap" })
+    render()
+end
+
 function onCloseClicked()
     panel.close()
 end
@@ -371,6 +560,11 @@ end)
 
 noctalia.state.watch("power", function(value)
     power = type(value) == "table" and value or { available = false, profiles = {} }
+    render()
+end)
+
+noctalia.state.watch("cleanup", function(value)
+    cleanup = type(value) == "table" and value or {}
     render()
 end)
 

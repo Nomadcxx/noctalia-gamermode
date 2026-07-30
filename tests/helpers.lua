@@ -380,6 +380,23 @@ function helpers.newNoctalia(opts)
         return os.rename(from, to) and true or false
     end
 
+    -- opts.home redirects ~ so a test can point the shader-cache paths at a scratch tree
+    -- instead of the machine running the suite.
+    mock.home = opts.home or os.getenv("HOME") or "/home/user"
+
+    mock.expandPath = function(path)
+        if type(path) ~= "string" then
+            return nil
+        end
+        if path == "~" then
+            return mock.home
+        end
+        if path:sub(1, 2) == "~/" then
+            return mock.home .. path:sub(2)
+        end
+        return path
+    end
+
     mock.fileExists = function(path)
         local file = io.open(path, "r")
         if not file then

@@ -67,6 +67,8 @@
       "heavy": "Heavy"
     },
     "settings": "Settings",
+    "state_off": "Off",
+    "state_on": "Running",
     "stopped": "stopped",
     "suspended": "Suspended",
     "title": "Gamer Mode",
@@ -85,5 +87,21 @@
     },
     "nothing_suspended": "No background targets were running.",
     "nothing_restored": "Nothing needed restarting."
+  },
+  "cleanup": {
+    "title": "Maintenance",
+    "shaders": "Clear shader caches",
+    "shaders_confirm": "Delete {size}?",
+    "pagecache": "Drop page cache",
+    "swap": "Reclaim swap",
+    "running": "Working...",
+    "shaders_done": "Cleared {size} of shader cache.",
+    "shaders_none": "No shader caches found.",
+    "pagecache_done": "Page cache dropped.",
+    "swap_done": "Swap reclaimed into RAM.",
+    "swap_empty": "Nothing is swapped out.",
+    "swap_unknown": "Swap usage could not be read.",
+    "swap_no_room": "Not enough free RAM to hold what is swapped out.",
+    "failed": "That did not work. See the log."
   }
 }
