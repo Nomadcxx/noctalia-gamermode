@@ -428,15 +428,34 @@ function M.buildSnapshot(profile, powerProfileBefore, probedTargets)
     }
 end
 
--- restorePlan answers "what may gamer mode start back up?". A target qualifies only if
--- it was up when gamer mode began and is still down now: that keeps a manual restart
--- from being stomped and keeps something that was already off from being started.
+-- restorePlan answers "which stopped targets may be started again?". A target qualifies
+-- only if it was up when gamer mode began and is still down now: that keeps a manual
+-- restart from being stomped and keeps something that was already off from being started.
 -- `stateOf` returns the live state string, or nil when it could not be determined -- in
 -- which case the target is left alone.
+--
+-- Freeze targets are deliberately excluded; they go through thawPlan, which needs no
+-- probe at all.
 function M.restorePlan(snap, stateOf)
     local plan = {}
     for _, target in ipairs((snap and snap.targets) or {}) do
-        if UP_STATES[target.was] and stateOf(target.match) == "down" then
+        if UP_STATES[target.was] and M.actionOf(target) == "stop" and stateOf(target.match) == "down" then
+            plan[#plan + 1] = target
+        end
+    end
+    return plan
+end
+
+-- thawPlan returns every frozen target, with no live check. A frozen process still shows
+-- up in pgrep, so there is no probe that could distinguish "still frozen" from "running",
+-- and SIGCONT to a process that is not stopped is a verified no-op. Thawing
+-- unconditionally is therefore both simpler and strictly safer: it cannot misread a
+-- state, cannot stomp a manual restart, and cannot leave something frozen because a probe
+-- failed to start.
+function M.thawPlan(snap)
+    local plan = {}
+    for _, target in ipairs((snap and snap.targets) or {}) do
+        if UP_STATES[target.was] and M.actionOf(target) == "freeze" then
             plan[#plan + 1] = target
         end
     end
@@ -448,6 +467,7 @@ local function validSnapshotTarget(entry)
         and validateShellValue(entry.match) ~= nil
         and VALID_KINDS[entry.kind] ~= nil
         and type(entry.was) == "string"
+        and (entry.action == nil or VALID_ACTIONS[entry.action] == true)
 end
 
 function M.writeSnapshot(snap)
@@ -511,7 +531,12 @@ function M.readSnapshot()
     local dropped = 0
     for _, entry in ipairs(decoded.targets) do
         if validSnapshotTarget(entry) then
-            targets[#targets + 1] = { match = entry.match, kind = entry.kind, was = entry.was }
+            targets[#targets + 1] = {
+                match = entry.match,
+                kind = entry.kind,
+                action = entry.action,
+                was = entry.was,
+            }
         else
             dropped = dropped + 1
         end
@@ -682,7 +707,11 @@ function M.publishGameMode()
     if snap then
         for _, target in ipairs(snap.targets) do
             if UP_STATES[target.was] then
-                suspended[#suspended + 1] = { match = target.match, kind = target.kind }
+                suspended[#suspended + 1] = {
+                    match = target.match,
+                    kind = target.kind,
+                    action = M.actionOf(target),
+                }
             end
         end
     end
@@ -731,6 +760,7 @@ local function probeAll(targets, done)
                 slots[index] = {
                     match = target.match,
                     kind = target.kind,
+                    action = M.actionOf(target),
                     was = M.wasState(target.kind, result and result.stdout),
                 }
                 pending = pending - 1
@@ -740,17 +770,19 @@ local function probeAll(targets, done)
     end
 end
 
--- stopAll stops every target that was up. A stop that fails is logged and the flow
--- continues: a missing NOPASSWD rule for one system unit must not abandon the rest.
-local function stopAll(probed, done)
+-- suspendAll suspends every target that was up, using each target's own action. A failure
+-- is logged and the flow continues: a missing NOPASSWD rule for one system unit must not
+-- abandon the rest.
+local function suspendAll(probed, done)
     local jobs = {}
     for _, entry in ipairs(probed) do
         if UP_STATES[entry.was] then
-            local command = M.stopCmd(entry)
+            local action = M.actionOf(entry)
+            local command = action == "freeze" and M.freezeCmd(entry) or M.stopCmd(entry)
             if command then
-                jobs[#jobs + 1] = { entry = entry, command = command }
+                jobs[#jobs + 1] = { entry = entry, command = command, action = action }
             else
-                noctalia.log("gamermode: no stop command for " .. tostring(entry.match))
+                noctalia.log("gamermode: no " .. action .. " command for " .. tostring(entry.match))
             end
         end
     end
@@ -760,17 +792,20 @@ local function stopAll(probed, done)
         done(0)
         return
     end
-    local stopped = 0
+    local suspended = 0
     for _, job in ipairs(jobs) do
         run(job.command, function(result)
             if succeeded(result) then
-                stopped = stopped + 1
+                suspended = suspended + 1
             else
-                noctalia.log("gamermode: could not stop " .. job.entry.match .. ": " .. describeFailure(result))
+                noctalia.log(
+                    "gamermode: could not " .. job.action .. " " .. job.entry.match
+                        .. ": " .. describeFailure(result)
+                )
             end
             pending = pending - 1
             if pending == 0 then
-                done(stopped)
+                done(suspended)
             end
         end)
     end
@@ -795,7 +830,7 @@ function M.enable()
 
     local function withPowerBefore(powerBefore)
         probeAll(targets, function(probed)
-            stopAll(probed, function(stopped)
+            suspendAll(probed, function(stopped)
                 M.writeSnapshot(M.buildSnapshot(profile, powerBefore, probed))
                 busy = false
                 M.publishGameMode()
@@ -834,13 +869,14 @@ function M.disable()
     busy = true
     M.publishGameMode()
 
-    -- Filter to what was recorded as up; the "still down" half of the check is a live
+    local thawTargets = M.thawPlan(snap)
+    -- Filter to stop targets recorded as up; the "still down" half of the check is a live
     -- probe per target below, so a manual restart in the meantime wins.
     local candidates = M.restorePlan(snap, function()
         return "down"
     end)
 
-    local pending = #candidates
+    local pending = #thawTargets + #candidates
     local restored = 0
 
     local function finish()
@@ -869,6 +905,27 @@ function M.disable()
         end
     end
 
+    -- Freeze targets: thaw unconditionally, no probe. A frozen process still appears in
+    -- pgrep so no probe could tell "still frozen" from "running", and SIGCONT to a running
+    -- process is a verified no-op.
+    for _, target in ipairs(thawTargets) do
+        local thawCommand = M.thawCmd(target)
+        if not thawCommand then
+            noctalia.log("gamermode: no thaw command for " .. tostring(target.match))
+            step()
+        else
+            run(thawCommand, function(result)
+                if succeeded(result) then
+                    restored = restored + 1
+                else
+                    noctalia.log("gamermode: could not thaw " .. target.match .. ": " .. describeFailure(result))
+                end
+                step()
+            end)
+        end
+    end
+
+    -- Stop targets: probe, then start only if still down.
     for _, target in ipairs(candidates) do
         local startCommand = M.startCmd(target)
         if not startCommand then

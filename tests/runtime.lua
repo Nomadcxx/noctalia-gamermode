@@ -285,4 +285,93 @@ assert(not helpers.ranCommand(bareMock, "powerprofilesctl"), "still never invoke
 bare.disable()
 assert(bareMock.published.game_mode.enabled == false, "disable works without powerprofilesctl")
 
+-- ── mixed stop + freeze flow ──
+
+-- A frozen process still appears in pgrep, so the was-up-and-still-down probe cannot
+-- decide whether to thaw it. Freeze targets are therefore thawed unconditionally, which
+-- is safe because SIGCONT to a running process is a verified no-op.
+local MIXED_DIR = "/tmp/gamermode-test-mixed"
+local MIXED_TARGETS = '[{"match":"brave","kind":"process","action":"freeze","profiles":["light"]},'
+    .. '{"match":"nzbget.service","kind":"system-service","action":"stop","profiles":["light"]},'
+    .. '{"match":"idle-thing","kind":"process","action":"freeze","profiles":["light"]}]'
+
+local mixedLive = { ["brave"] = "4242", ["nzbget.service"] = "active", ["idle-thing"] = "" }
+
+local function mixedRespond(command)
+    for match, output in pairs(mixedLive) do
+        if command:find("'" .. match .. "'", 1, true) then
+            if command:find("is-active", 1, true) or command:find("pgrep", 1, true) then
+                return { stdout = output, exitCode = output == "" and 1 or 0 }
+            end
+        end
+    end
+    return { stdout = "" }
+end
+
+helpers.resetDir(MIXED_DIR)
+local mixedMock = helpers.newNoctalia({
+    dataDir = MIXED_DIR,
+    config = { profile = "light", auto_performance = false, targets = MIXED_TARGETS },
+    respond = mixedRespond,
+})
+local mixed = dofile("gamermode/service.luau")
+
+mixed.enable()
+
+-- The freeze target that was up is frozen, not killed.
+assert(helpers.ranCommand(mixedMock, "pkill -STOP -x 'brave'"), "running freeze target is frozen")
+assert(not helpers.ranCommand(mixedMock, "pkill -x 'brave'"), "freeze target is never killed")
+-- The stop target that was up is stopped.
+assert(helpers.ranCommand(mixedMock, "sudo -n systemctl stop 'nzbget.service'"), "stop target is stopped")
+-- The freeze target that was already down is left alone.
+assert(not helpers.ranCommand(mixedMock, "pkill -STOP -x 'idle-thing'"), "down target is not frozen")
+
+-- The published state distinguishes the two, so the panel can label them.
+local suspendedActions = {}
+for _, entry in ipairs(mixedMock.published.game_mode.suspended) do
+    suspendedActions[entry.match] = entry.action
+end
+assert(suspendedActions["brave"] == "freeze", "frozen target published with its action")
+assert(suspendedActions["nzbget.service"] == "stop", "stopped target published with its action")
+assert(suspendedActions["idle-thing"] == nil, "already-down target not listed")
+
+-- The session records the action so a restore after a shell restart still knows which
+-- half of the restore each target belongs to.
+local mixedSnap = mixed.readSnapshot()
+local recorded = {}
+for _, entry in ipairs(mixedSnap.targets) do
+    recorded[entry.match] = entry.action
+end
+assert(recorded["brave"] == "freeze" and recorded["nzbget.service"] == "stop", "actions persisted")
+
+-- ── disable ──
+
+mixedMock.commands = {}
+-- brave is still frozen (pgrep still finds it); nzbget is still down.
+mixedLive["nzbget.service"] = ""
+mixed.disable()
+
+-- Freeze targets are thawed with no probe at all.
+assert(helpers.ranCommand(mixedMock, "pkill -CONT -x 'brave'"), "freeze target thawed")
+assert(not helpers.ranCommand(mixedMock, "pgrep -x 'brave'"), "thaw needs no probe")
+-- Stop targets keep the still-down probe before being started.
+assert(helpers.ranCommand(mixedMock, "systemctl is-active 'nzbget.service'"), "stop target probed")
+assert(helpers.ranCommand(mixedMock, "sudo -n systemctl start 'nzbget.service'"), "stop target started")
+-- Nothing touches the target that was already down.
+assert(not helpers.ranCommand(mixedMock, "'idle-thing'"), "already-down target untouched on restore")
+
+assert(mixedMock.published.game_mode.enabled == false, "disabled after the mixed flow")
+
+-- A stop target the user restarted by hand is not stomped, but a freeze target is thawed
+-- regardless -- SIGCONT to a running process changes nothing.
+helpers.resetDir(MIXED_DIR)
+mixedLive["nzbget.service"] = "active"
+mixedLive["brave"] = "4242"
+mixed.enable()
+mixedMock.commands = {}
+mixedLive["nzbget.service"] = "active" -- the user restarted it during gamer mode
+mixed.disable()
+assert(not helpers.ranCommand(mixedMock, "sudo -n systemctl start 'nzbget.service'"), "manual restart kept")
+assert(helpers.ranCommand(mixedMock, "pkill -CONT -x 'brave'"), "freeze target thawed anyway")
+
 print("runtime: passed")
