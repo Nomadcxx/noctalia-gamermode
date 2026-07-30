@@ -39,7 +39,7 @@ CPU 25% 59°C | RAM 10.9G | GPU 18% 61°C | VRAM 2.5G
 ```
 
 The panel shows a bar per reading, the power profile selector, the suspend
-profile selector, and what the plugin has suspended.
+profile selector, what the plugin has suspended, and the maintenance actions.
 
 Pick `light` or `heavy` in the panel and press Enable, and that profile applies
 for the session. A plugin reads its own settings and cannot write them, so the
@@ -61,6 +61,34 @@ Toggle the panel:
 noctalia msg panel-toggle nomadcxx/gamer-mode:main
 ```
 
+### Maintenance
+
+Three one-shot cleanups sit at the foot of the panel. None of them is part of
+gamer mode, and turning gamer mode off does not undo any of them.
+
+| Action | What it does | Needs a password |
+| --- | --- | --- |
+| Clear shader caches | Deletes the Mesa, NVIDIA `GLCache`, RADV, and Steam shader caches | No |
+| Drop page cache | `sync`, then `vm.drop_caches=3` | Yes |
+| Reclaim swap | `swapoff -a && swapon -a`, pulling swapped pages back into RAM | Yes |
+
+Clearing shader caches takes two clicks. The first measures and the button
+reports the size, the second deletes. Games recompile shaders on their next
+launch, so that launch is slower. This is the one to reach for when a driver
+update leaves stale shaders behind.
+
+The plugin expands every cache path from a fixed list and drops any that
+resolves outside your home directory, so the `rm` only ever sees the paths
+above, and only those that exist.
+
+Dropping the page cache frees the RAM the kernel uses to cache files. The kernel
+refills it, and the pages it discards are ones it would otherwise have reused, so
+this buys less than the number in `free` suggests.
+
+Reclaiming swap only runs when what is swapped out fits in free RAM with a tenth
+of total held back. Otherwise it reports that there is no room and does nothing,
+because succeeding into an out-of-memory kill would defeat the point.
+
 ## Settings
 
 | Setting | Default | Description |
@@ -73,9 +101,9 @@ noctalia msg panel-toggle nomadcxx/gamer-mode:main
 | Show temperatures | On | Includes CPU and GPU temperatures in the tooltip and panel. |
 | Suspend targets (JSON) | Empty | Replaces the built-in target list. See below. |
 
-The suspend profile is a setting rather than a panel control because plugins read
-their own settings and cannot write them. The panel shows the active profile and
-offers a button through to the settings window.
+The setting names the profile a bar click applies. The panel selector overrides
+it for the enable it is sent with, and the bar's right-click toggle does not see
+that selection, so it uses the setting.
 
 ## Target list
 

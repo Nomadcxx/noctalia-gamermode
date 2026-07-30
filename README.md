@@ -1,4 +1,6 @@
-# Gamer Mode for Noctalia
+<img src="gamer-mode/logo.svg" width="96" alt="">
+
+# gamer-mode
 
 Show live CPU, RAM, and GPU numbers in the bar. Suspend background resource hogs
 with one click, then restore what was running before.
@@ -14,6 +16,8 @@ GPUs work wherever the shell reports them.
 
 - `pgrep` and `pkill` from procps handle process targets
 - `systemctl` handles service and timer targets
+- `pkexec` and a polkit authentication helper authorise system units, once per
+  enable rather than once per unit
 - `docker` handles container targets
 - `powerprofilesctl` from power-profiles-daemon switches the power profile
 
@@ -41,6 +45,10 @@ noctalia msg plugins enable nomadcxx/gamer-mode
 
 Pull a newer version with `noctalia msg plugins update <source-name>`, then run
 `enable` again to re-export it.
+
+The panel also carries three one-shot cleanups: clear shader caches, drop the
+page cache, reclaim swap. None of them is part of gamer mode and none is undone
+by turning it off.
 
 See the [plugin README](gamer-mode/README.md) for the target list format,
 configuration, commands, and runtime side effects.
