@@ -52,4 +52,18 @@ assert(checked >= 18, "expected the manifest to declare translated settings, saw
 assert(lookup("panel.title") and lookup("notify.enabled_title"), "panel/notify strings missing")
 '
 
+# catalog.toml is what the plugin browser reads, so it must not drift from the manifest.
+if [ -f catalog.toml ]; then
+    for key in id name version author license icon description plugin_api; do
+        manifest_value=$(grep -m1 "^${key} = " gamermode/plugin.toml | cut -d' ' -f3-)
+        catalog_value=$(grep -m1 "^${key} = " catalog.toml | cut -d' ' -f3-)
+        if [ -z "$manifest_value" ] || [ "$manifest_value" != "$catalog_value" ]; then
+            echo "catalog.toml drifted from plugin.toml at '${key}':" >&2
+            echo "  plugin.toml:  ${manifest_value:-<missing>}" >&2
+            echo "  catalog.toml: ${catalog_value:-<missing>}" >&2
+            exit 1
+        fi
+    done
+fi
+
 echo "scaffold: passed"

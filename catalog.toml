@@ -1,0 +1,11 @@
+[[plugin]]
+id = "nomadcxx/gamermode"
+name = "Gamer Mode"
+version = "0.1.0"
+author = "Nomadcxx"
+license = "MIT"
+icon = "device-gamepad-2"
+description = "Live CPU/RAM/GPU metrics and a one-click gamer mode that suspends and restores background resource hogs."
+plugin_api = 19
+dependencies = ["pgrep", "pkill", "powerprofilesctl", "systemctl"]
+tags = ["bar", "panel", "service", "gaming", "performance", "metrics"]
