@@ -7,7 +7,7 @@ set -eu
 
 status=0
 
-for source in gamermode/*.luau; do
+for source in gamer-mode/*.luau; do
     matches=$(grep -nE '(^|[^[:alnum:]_.])(io\.[a-zA-Z]+|os\.(execute|remove|rename|tmpname|exit|getenv)|load|loadstring|dofile|require)[[:space:]]*\(' "$source" || true)
     if [ -n "$matches" ]; then
         echo "$source reaches for an API the Luau sandbox does not provide:" >&2
@@ -17,11 +17,11 @@ for source in gamermode/*.luau; do
 done
 
 # The same mistake in reverse: filesystem work must go through the noctalia bindings.
-grep -q 'noctalia.readFile' gamermode/service.luau || {
+grep -q 'noctalia.readFile' gamer-mode/service.luau || {
     echo "service.luau should read files through noctalia.readFile" >&2
     status=1
 }
-grep -q 'noctalia.writeFile' gamermode/service.luau || {
+grep -q 'noctalia.writeFile' gamer-mode/service.luau || {
     echo "service.luau should write files through noctalia.writeFile" >&2
     status=1
 }

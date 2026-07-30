@@ -10,7 +10,7 @@ background resource hogs and restores what was running before.
 
 | Field | Value |
 | --- | --- |
-| ID | `nomadcxx/gamermode` |
+| ID | `nomadcxx/gamer-mode` |
 | Entries | Bar widget: `gamermode`; panel: `main`; service: `service` |
 
 ## Requirements
@@ -50,15 +50,15 @@ because the session already fixed the profile. To change it, disable first.
 Drive it from a shell or a keybind:
 
 ```sh
-noctalia msg plugin nomadcxx/gamermode:service all toggle
-noctalia msg plugin nomadcxx/gamermode:service all enable
-noctalia msg plugin nomadcxx/gamermode:service all disable
+noctalia msg plugin nomadcxx/gamer-mode:service all toggle
+noctalia msg plugin nomadcxx/gamer-mode:service all enable
+noctalia msg plugin nomadcxx/gamer-mode:service all disable
 ```
 
 Toggle the panel:
 
 ```sh
-noctalia msg panel-toggle nomadcxx/gamermode:main
+noctalia msg panel-toggle nomadcxx/gamer-mode:main
 ```
 
 ## Settings

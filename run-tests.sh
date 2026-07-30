@@ -17,7 +17,7 @@ for test in tests/*.sh; do
 done
 
 # Plugin sources must at least parse.
-for source in gamermode/*.luau; do
+for source in gamer-mode/*.luau; do
     lua -e "assert(loadfile('$source'))" || status=1
 done
 

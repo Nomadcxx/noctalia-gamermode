@@ -3,7 +3,7 @@
 -- Bar widget: a glyph plus a live tooltip. It owns no state -- it renders whatever the
 -- service publishes and sends commands back through `noctalia.state`.
 
-local PANEL_ID = "nomadcxx/gamermode:main"
+local PANEL_ID = "nomadcxx/gamer-mode:main"
 local MIB_PER_GIB = 1024
 
 local M = {}

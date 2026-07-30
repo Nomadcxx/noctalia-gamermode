@@ -7,7 +7,7 @@ local DATA_DIR = "/tmp/gamermode-test-snapshot"
 local SNAPSHOT = DATA_DIR .. "/session.json"
 
 local mock = helpers.newNoctalia({ dataDir = DATA_DIR })
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 helpers.resetDir(DATA_DIR)
 

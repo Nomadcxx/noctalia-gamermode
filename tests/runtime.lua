@@ -79,7 +79,7 @@ local mock = helpers.newNoctalia({
     respond = respond,
 })
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- ── power profile listing ──
 
@@ -332,7 +332,7 @@ local bareMock = helpers.newNoctalia({
     missingCommands = { powerprofilesctl = true },
 })
 helpers.resetDir(DATA_DIR)
-local bare = dofile("gamermode/service.luau")
+local bare = dofile("gamer-mode/service.luau")
 assert(bareMock.published.power.available == false, "power unavailable")
 assert(not helpers.ranCommand(bareMock, "powerprofilesctl"), "powerprofilesctl never invoked")
 bare.enable()
@@ -370,7 +370,7 @@ local mixedMock = helpers.newNoctalia({
     config = { profile = "light", auto_performance = false, targets = MIXED_TARGETS },
     respond = mixedRespond,
 })
-local mixed = dofile("gamermode/service.luau")
+local mixed = dofile("gamer-mode/service.luau")
 
 mixed.enable()
 

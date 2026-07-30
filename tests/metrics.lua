@@ -3,7 +3,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- Full sample: percentages arrive 0-100 from the shell and are published as 0-1
 -- fractions; RAM is MiB and VRAM is bytes.

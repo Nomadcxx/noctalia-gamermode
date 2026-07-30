@@ -19,7 +19,7 @@ local function newService(opts)
             return { stdout = "" }
         end,
     })
-    return mock, dofile("gamermode/service.luau")
+    return mock, dofile("gamer-mode/service.luau")
 end
 
 -- Everything is up, so enable has something to suspend.
@@ -52,7 +52,7 @@ assert(sameMock.published.game_mode.enabled == true, "enabled")
 sameMock.commands = {}
 
 -- Reloading the service on the same boot must not clear the session.
-local sameAgain = dofile("gamermode/service.luau")
+local sameAgain = dofile("gamer-mode/service.luau")
 assert(sameMock.published.game_mode.enabled == true, "session survives a reload on the same boot")
 assert(not helpers.ranCommand(sameMock, "systemctl start"), "no restore on the same boot")
 assert(not helpers.ranCommand(sameMock, "pkill -CONT"), "no thaw on the same boot")
@@ -76,7 +76,7 @@ rebootMock.respond = function(command)
     return { stdout = "" }
 end
 
-local afterReboot = dofile("gamermode/service.luau")
+local afterReboot = dofile("gamer-mode/service.luau")
 
 assert(rebootMock.published.game_mode.enabled == false, "reports disabled after a reboot")
 assert(afterReboot.readSnapshot() == nil, "stale session cleared")
@@ -109,7 +109,7 @@ assert(legacyMock.writeFile(
         .. '[{"match":"nzbget.service","kind":"system-service","action":"stop","was":"active"}]}'
 ), "legacy fixture written")
 legacyMock.commands = {}
-local legacyReload = dofile("gamermode/service.luau")
+local legacyReload = dofile("gamer-mode/service.luau")
 assert(legacyMock.published.game_mode.enabled == true, "a session with no boot id is kept")
 assert(legacyReload.readSnapshot() ~= nil, "legacy session not cleared")
 assert(not helpers.ranCommand(legacyMock, "systemctl start"), "no restore for a legacy session")
@@ -130,7 +130,7 @@ assert(blindMock.writeFile(
         .. '[{"match":"nzbget.service","kind":"system-service","action":"stop","was":"active"}]}'
 ), "fixture written")
 blindMock.commands = {}
-local blind = dofile("gamermode/service.luau")
+local blind = dofile("gamer-mode/service.luau")
 assert(blind.currentBootId() == nil, "an unreadable boot id reads as nil")
 assert(blindMock.published.game_mode.enabled == true, "unreadable boot id keeps the session")
 assert(blind.readSnapshot() ~= nil, "session kept when staleness cannot be determined")

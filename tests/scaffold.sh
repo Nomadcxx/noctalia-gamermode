@@ -9,24 +9,24 @@ expect() {
     }
 }
 
-expect '^id = "nomadcxx/gamermode"$' gamermode/plugin.toml
-expect '^plugin_api = 19$' gamermode/plugin.toml
-expect 'entry = "service.luau"' gamermode/plugin.toml
-expect 'entry = "panel.luau"' gamermode/plugin.toml
-expect 'entry = "widget.luau"' gamermode/plugin.toml
+expect '^id = "nomadcxx/gamer-mode"$' gamer-mode/plugin.toml
+expect '^plugin_api = 19$' gamer-mode/plugin.toml
+expect 'entry = "service.luau"' gamer-mode/plugin.toml
+expect 'entry = "panel.luau"' gamer-mode/plugin.toml
+expect 'entry = "widget.luau"' gamer-mode/plugin.toml
 
 # `icon` and the `glyph` setting default must name glyphs from the shell's registry;
 # a filesystem path renders as a missing glyph.
-expect '^icon = "device-gamepad-2"$' gamermode/plugin.toml
-expect '^default = "device-gamepad-2"$' gamermode/plugin.toml
+expect '^icon = "device-gamepad-2"$' gamer-mode/plugin.toml
+expect '^default = "device-gamepad-2"$' gamer-mode/plugin.toml
 
 # Every label_key/description_key in the manifest must resolve in the bundle.
 lua -e '
 package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
-local manifest = assert(io.open("gamermode/plugin.toml")):read("*a")
-local bundle = assert(io.open("gamermode/translations/en.json")):read("*a")
+local manifest = assert(io.open("gamer-mode/plugin.toml")):read("*a")
+local bundle = assert(io.open("gamer-mode/translations/en.json")):read("*a")
 local translations, decodeError = helpers.json.decode(bundle)
 assert(type(translations) == "table", "en.json must be valid JSON: " .. tostring(decodeError))
 
@@ -57,7 +57,7 @@ assert(lookup("panel.title") and lookup("notify.enabled_title"), "panel/notify s
 # whole manifest at load, and the plugin then cannot be enabled at all -- the export
 # aborts partway and nothing materialises, so it is worth catching here.
 lua -e '
-local manifest = assert(io.open("gamermode/plugin.toml")):read("*a")
+local manifest = assert(io.open("gamer-mode/plugin.toml")):read("*a")
 
 local VALID_FOCUS = { on_demand = true, exclusive = true, none = true }
 
@@ -98,7 +98,7 @@ end
 # catalog.toml is what the plugin browser reads, so it must not drift from the manifest.
 if [ -f catalog.toml ]; then
     for key in id name version author license icon description plugin_api; do
-        manifest_value=$(grep -m1 "^${key} = " gamermode/plugin.toml | cut -d' ' -f3-)
+        manifest_value=$(grep -m1 "^${key} = " gamer-mode/plugin.toml | cut -d' ' -f3-)
         catalog_value=$(grep -m1 "^${key} = " catalog.toml | cut -d' ' -f3-)
         if [ -z "$manifest_value" ] || [ "$manifest_value" != "$catalog_value" ]; then
             echo "catalog.toml drifted from plugin.toml at '${key}':" >&2

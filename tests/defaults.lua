@@ -4,7 +4,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 local defaults = svc.DEFAULT_TARGETS
 assert(#defaults > 60, "the list is broad; absent software is a free no-op, got " .. #defaults)

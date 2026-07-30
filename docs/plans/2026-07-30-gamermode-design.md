@@ -13,7 +13,7 @@ then restores exactly what it stopped, no more, no less.
 ## Components
 
 ```
-gamermode/
+gamer-mode/
   plugin.toml        # metadata, settings schema, [[service]]/[[panel]]/[[widget]]
   service.luau       # metrics poller + game-mode engine (single file)
   panel.luau         # dropdown UI

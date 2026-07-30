@@ -4,7 +4,7 @@
 
 **Goal:** Make the suspend engine safe for arbitrary user setups: a non-overridable denylist, a reversible `freeze` action, systemd timer kinds, a generic default target list, and boot-ID staleness detection.
 
-**Architecture:** All engine changes land in the single `gamermode/service.luau`. A target gains an `action` field (`stop` | `freeze`); restore splits into two passes — `stop` targets keep the was-up-and-still-down probe, `freeze` targets are thawed unconditionally because `SIGCONT` to a running process is a verified no-op. Two new kinds (`user-timer`, `system-timer`) close the scheduled-work gap.
+**Architecture:** All engine changes land in the single `gamer-mode/service.luau`. A target gains an `action` field (`stop` | `freeze`); restore splits into two passes — `stop` targets keep the was-up-and-still-down probe, `freeze` targets are thawed unconditionally because `SIGCONT` to a running process is a verified no-op. Two new kinds (`user-timer`, `system-timer`) close the scheduled-work gap.
 
 **Tech Stack:** Noctalia V5 luau plugin API (`plugin_api = 19`), plain `lua` 5.5 for tests via the `tests/helpers.lua` mock.
 
@@ -25,7 +25,7 @@
 ### Task 1: Never-touch denylist
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/denylist.lua`
 
 **Interfaces:**
@@ -41,7 +41,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 local mock = helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- Every protected name is recognised.
 local PROTECTED = {
@@ -109,7 +109,7 @@ print("denylist: passed")
 Run: `lua tests/denylist.lua`
 Expected: FAIL — `attempt to call a nil value (field 'isDenied')`
 
-- [ ] **Step 3: Add the denylist to `gamermode/service.luau`**
+- [ ] **Step 3: Add the denylist to `gamer-mode/service.luau`**
 
 Insert immediately after the `VALID_KINDS` table:
 
@@ -241,7 +241,7 @@ Expected: all pass, including the nine existing suites.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add gamermode/service.luau tests/denylist.lua
+git add gamer-mode/service.luau tests/denylist.lua
 git commit -m "feat: never-touch denylist for session-critical targets
 
 Refuses to suspend the compositor, the shell, audio, core IPC, network and the
@@ -258,7 +258,7 @@ Not overridable: the cost of a wrong entry is a dead session."
 ### Task 2: systemd timer kinds
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/actions.lua`
 
 **Interfaces:**
@@ -273,7 +273,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 local mock = helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- ── timer kinds ──
 
@@ -430,7 +430,7 @@ Expected: all pass.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add gamermode/service.luau tests/actions.lua
+git add gamer-mode/service.luau tests/actions.lua
 git commit -m "feat: user-timer and system-timer target kinds
 
 Stopping foo.service does not stop foo.timer from re-firing it minutes later,
@@ -447,7 +447,7 @@ resolves to fstrim.service -- the wrong unit."
 ### Task 3: `freeze` action
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/actions.lua` (extend)
 
 **Interfaces:**
@@ -669,7 +669,7 @@ Expected: all pass.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add gamermode/service.luau tests/actions.lua
+git add gamer-mode/service.luau tests/actions.lua
 git commit -m "feat: freeze action as a reversible alternative to stop
 
 freeze is SIGSTOP for processes and units and docker pause for containers.
@@ -691,7 +691,7 @@ process + action=stop is now warned as unrecoverable."
 ### Task 4: Split restore — freeze thawed unconditionally
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/runtime.lua` (extend)
 
 **Interfaces:**
@@ -732,7 +732,7 @@ local mixedMock = helpers.newNoctalia({
         return { stdout = "" }
     end,
 })
-local mixed = dofile("gamermode/service.luau")
+local mixed = dofile("gamer-mode/service.luau")
 
 mixed.enable()
 
@@ -1041,7 +1041,7 @@ Expected: all pass.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add gamermode/service.luau tests/runtime.lua
+git add gamer-mode/service.luau tests/runtime.lua
 git commit -m "feat: split restore so frozen targets are thawed unconditionally
 
 A frozen process still appears in pgrep, so the was-up-and-still-down probe
@@ -1061,7 +1061,7 @@ which pass a target belongs to."
 ### Task 5: Generic default target list
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/defaults.lua`
 
 **Interfaces:**
@@ -1077,7 +1077,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 local defaults = svc.DEFAULT_TARGETS
 assert(#defaults > 60, "the list is broad; absent software is a free no-op, got " .. #defaults)
@@ -1373,7 +1373,7 @@ entries are light-tagged, both of which still hold.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add gamermode/service.luau tests/defaults.lua
+git add gamer-mode/service.luau tests/defaults.lua
 git commit -m "feat: generic default target list
 
 Replaces six machine-specific defaults with a broad list organised by category
@@ -1396,7 +1396,7 @@ daemons, and shared databases are all excluded and documented instead."
 ### Task 6: Boot-ID staleness detection
 
 **Files:**
-- Modify: `gamermode/service.luau`, `tests/helpers.lua`
+- Modify: `gamer-mode/service.luau`, `tests/helpers.lua`
 - Test: `tests/staleness.lua`
 
 **Interfaces:**
@@ -1454,7 +1454,7 @@ local function newService(opts)
             return { stdout = "" }
         end,
     })
-    return mock, dofile("gamermode/service.luau")
+    return mock, dofile("gamer-mode/service.luau")
 end
 
 local TARGETS = '[{"match":"nzbget.service","kind":"system-service","action":"stop","profiles":["light"]},'
@@ -1488,7 +1488,7 @@ same.enable()
 assert(sameMock.published.game_mode.enabled == true, "enabled")
 sameMock.commands = {}
 -- Reloading the service on the same boot must not clear the session.
-local sameAgain = dofile("gamermode/service.luau")
+local sameAgain = dofile("gamer-mode/service.luau")
 assert(sameMock.published.game_mode.enabled == true, "session survives a reload on the same boot")
 assert(not helpers.ranCommand(sameMock, "systemctl start"), "no restore on the same boot")
 assert(sameAgain.readSnapshot() ~= nil, "session file still present")
@@ -1520,7 +1520,7 @@ rebootMock.respond = function(command)
     return { stdout = "" }
 end
 
-local afterReboot = dofile("gamermode/service.luau")
+local afterReboot = dofile("gamer-mode/service.luau")
 
 assert(rebootMock.published.game_mode.enabled == false, "reports disabled after a reboot")
 assert(afterReboot.readSnapshot() == nil, "stale session cleared")
@@ -1547,7 +1547,7 @@ assert(legacyMock.writeFile(
         .. '[{"match":"nzbget.service","kind":"system-service","action":"stop","was":"active"}]}'
 ), "legacy fixture written")
 legacyMock.commands = {}
-local legacyReload = dofile("gamermode/service.luau")
+local legacyReload = dofile("gamer-mode/service.luau")
 assert(legacyMock.published.game_mode.enabled == true, "a session with no boot id is kept")
 assert(legacyReload.readSnapshot() ~= nil, "legacy session not cleared")
 
@@ -1559,7 +1559,7 @@ assert(blindMock.writeFile(
     '{"version":1,"profile":"light","boot_id":"boot-one","targets":'
         .. '[{"match":"nzbget.service","kind":"system-service","action":"stop","was":"active"}]}'
 ), "fixture written")
-local blind = dofile("gamermode/service.luau")
+local blind = dofile("gamer-mode/service.luau")
 assert(blindMock.published.game_mode.enabled == true, "unreadable boot id keeps the session")
 assert(blind.readSnapshot() ~= nil, "session kept when staleness cannot be determined")
 
@@ -1685,7 +1685,7 @@ Expected: all pass.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add gamermode/service.luau tests/helpers.lua tests/staleness.lua
+git add gamer-mode/service.luau tests/helpers.lua tests/staleness.lua
 git commit -m "feat: detect a stale session by kernel boot id
 
 session.json outlives a reboot, so without this the panel reports gamer mode ON
@@ -1707,7 +1707,7 @@ abandoning targets that may still be suspended."
 ### Task 7: Panel shows the action, plus translations
 
 **Files:**
-- Modify: `gamermode/panel.luau`, `gamermode/translations/en.json`
+- Modify: `gamer-mode/panel.luau`, `gamer-mode/translations/en.json`
 - Test: `tests/panel.lua`
 
 **Interfaces:**
@@ -1755,7 +1755,7 @@ assert(#p.suspendedLines({ enabled = true }) == 0, "missing suspended list is to
 Run: `lua tests/panel.lua`
 Expected: FAIL — `frozen target labelled: gslapper (process)`
 
-- [ ] **Step 3: Render the action in `gamermode/panel.luau`**
+- [ ] **Step 3: Render the action in `gamer-mode/panel.luau`**
 
 Replace `M.suspendedLines` with:
 
@@ -1772,7 +1772,7 @@ function M.suspendedLines(gm)
 end
 ```
 
-- [ ] **Step 4: Add the two strings to `gamermode/translations/en.json`**
+- [ ] **Step 4: Add the two strings to `gamer-mode/translations/en.json`**
 
 In the `panel` object, after `"nothing_suspended"`, add:
 
@@ -1794,7 +1794,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add gamermode/panel.luau gamermode/translations/en.json tests/panel.lua
+git add gamer-mode/panel.luau gamer-mode/translations/en.json tests/panel.lua
 git commit -m "feat: label frozen and stopped targets in the panel
 
 Frozen and stopped are materially different to someone reading the suspend
@@ -1809,11 +1809,11 @@ default."
 
 **Files:**
 - Modify: `README.md`
-- Modify: `gamermode/plugin.toml`, `catalog.toml` (version bump)
+- Modify: `gamer-mode/plugin.toml`, `catalog.toml` (version bump)
 
 - [ ] **Step 1: Bump the version to 0.2.0 in both manifests**
 
-In `gamermode/plugin.toml` and `catalog.toml`, change `version = "0.1.0"` to
+In `gamer-mode/plugin.toml` and `catalog.toml`, change `version = "0.1.0"` to
 `version = "0.2.0"`. `tests/scaffold.sh` fails if the two drift.
 
 - [ ] **Step 2: Rewrite the README's kill-list section**
@@ -1848,7 +1848,7 @@ Expected: all 13 suites pass.
 Each of these must make the suite FAIL. Restore the file after each.
 
 ```bash
-S=gamermode/service.luau; cp $S /tmp/svc.bak
+S=gamer-mode/service.luau; cp $S /tmp/svc.bak
 mut() { cp /tmp/svc.bak $S; sed -i "$2" $S; if ./run-tests.sh >/dev/null 2>&1; then echo "NOT CAUGHT: $1"; else echo "caught: $1"; fi; }
 
 mut "denylist disabled at parse"  's|if M.isDenied(entry.match) then|if false then|'
@@ -1864,7 +1864,7 @@ cp /tmp/svc.bak $S; ./run-tests.sh
 - [ ] **Step 5: Commit and push**
 
 ```bash
-git add README.md gamermode/plugin.toml catalog.toml
+git add README.md gamer-mode/plugin.toml catalog.toml
 git commit -m "docs: document actions, timer kinds and the denylist
 
 Covers when to choose stop versus freeze, the full kind x action matrix, why

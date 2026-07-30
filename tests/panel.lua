@@ -50,7 +50,7 @@ mock.published.game_mode = {
 }
 mock.published.power = { available = true, active = "performance", profiles = { "balanced", "performance", "power-saver" } }
 
-local p = dofile("gamermode/panel.luau")
+local p = dofile("gamer-mode/panel.luau")
 
 -- ── metric rows ──
 

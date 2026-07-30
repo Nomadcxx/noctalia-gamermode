@@ -21,7 +21,7 @@ local mock = helpers.newNoctalia({
 mock.published.game_mode = { enabled = false, suspended = {} }
 mock.published.metrics = { available = false }
 
-local widget = dofile("gamermode/widget.luau")
+local widget = dofile("gamer-mode/widget.luau")
 
 assert(bar.glyph == "device-gamepad-2", "glyph applied from the setting, got " .. tostring(bar.glyph))
 assert(type(bar.tooltip) == "string" and bar.tooltip ~= "", "a tooltip is set before the first sample")
@@ -121,7 +121,7 @@ assert(mock.toggledPanel == nil, "toggle action does not open the panel")
 mock.config.click_action = "open_panel"
 mock.published.command = nil
 onClick()
-assert(mock.toggledPanel == "nomadcxx/gamermode:main", "opens the panel, got " .. tostring(mock.toggledPanel))
+assert(mock.toggledPanel == "nomadcxx/gamer-mode:main", "opens the panel, got " .. tostring(mock.toggledPanel))
 assert(mock.published.command == nil, "no command sent when opening the panel")
 
 -- Left-click opens the panel by default, so a first-time user sees the metrics before
@@ -130,7 +130,7 @@ mock.config.click_action = nil
 mock.toggledPanel = nil
 mock.published.command = nil
 onClick()
-assert(mock.toggledPanel == "nomadcxx/gamermode:main", "an unset click_action opens the panel")
+assert(mock.toggledPanel == "nomadcxx/gamer-mode:main", "an unset click_action opens the panel")
 assert(mock.published.command == nil, "the default click suspends nothing")
 
 -- Right-click toggles gamer mode whatever click_action says, so the fast path is always

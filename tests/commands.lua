@@ -4,7 +4,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- Probes.
 assert(svc.probeCmd({ kind = "process", match = "gslapper" }) == "pgrep -x 'gslapper'", "probe process")

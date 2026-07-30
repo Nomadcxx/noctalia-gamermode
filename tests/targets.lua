@@ -4,7 +4,7 @@ package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
 local mock = helpers.newNoctalia()
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- Unset falls back to defaults.
 local defaults = svc.parseTargets(nil)

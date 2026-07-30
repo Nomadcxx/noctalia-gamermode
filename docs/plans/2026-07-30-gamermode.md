@@ -8,7 +8,7 @@
 
 **Tech Stack:** Noctalia V5 luau plugin API (`plugin_api = 19`), plain `lua` for tests (pattern: mock `noctalia` global + `dofile`, like `/home/nomadx/noctalia-gslapper/tests/panel-selftest.lua`).
 
-**Repo layout** (matches gslapper): plugin code in `gamermode/`, tests in `tests/`.
+**Repo layout** (matches gslapper): plugin code in `gamer-mode/`, tests in `tests/`.
 
 **Test runner:** all tests via `lua tests/<name>.lua` and `sh tests/<name>.sh`. `/usr/bin/lua` exists.
 
@@ -17,15 +17,15 @@
 ### Task 1: Scaffold — plugin.toml, translations, validation test
 
 **Files:**
-- Create: `gamermode/plugin.toml`
-- Create: `gamermode/translations/en.json`
+- Create: `gamer-mode/plugin.toml`
+- Create: `gamer-mode/translations/en.json`
 - Create: `tests/scaffold.sh`
-- Existing: `gamermode/icon.svg` (done)
+- Existing: `gamer-mode/icon.svg` (done)
 
-**Step 1: Write `gamermode/plugin.toml`**
+**Step 1: Write `gamer-mode/plugin.toml`**
 
 ```toml
-id = "nomadcxx/gamermode"
+id = "nomadcxx/gamer-mode"
 name = "Gamer Mode"
 version = "0.1.0"
 plugin_api = 19
@@ -33,7 +33,7 @@ author = "Nomadcxx"
 license = "MIT"
 dependencies = ["powerprofilesctl"]
 tags = ["bar", "panel", "service", "gaming", "performance", "metrics"]
-icon = "gamermode/icon.svg"
+icon = "gamer-mode/icon.svg"
 description = "Live CPU/RAM/GPU metrics and a one-click gamer mode that suspends and restores background resource hogs."
 
 [[setting]]
@@ -117,7 +117,7 @@ id = "bar"
 entry = "widget.luau"
 ```
 
-**Step 2: Write `gamermode/translations/en.json`**
+**Step 2: Write `gamer-mode/translations/en.json`**
 
 ```json
 {
@@ -158,12 +158,12 @@ entry = "widget.luau"
 #!/bin/sh
 set -eu
 expect() { grep -q "$1" "$2" || { echo "missing: $1 in $2" >&2; exit 1; }; }
-expect '^id = "nomadcxx/gamermode"$' gamermode/plugin.toml
-expect 'plugin_api = 19' gamermode/plugin.toml
-expect 'entry = "service.luau"' gamermode/plugin.toml
-expect 'entry = "panel.luau"' gamermode/plugin.toml
-expect 'entry = "widget.luau"' gamermode/plugin.toml
-lua -e 'local f=assert(io.open("gamermode/translations/en.json")):read("*a"); assert(f:find("auto_performance",1,true), "translations parse shape")'
+expect '^id = "nomadcxx/gamer-mode"$' gamer-mode/plugin.toml
+expect 'plugin_api = 19' gamer-mode/plugin.toml
+expect 'entry = "service.luau"' gamer-mode/plugin.toml
+expect 'entry = "panel.luau"' gamer-mode/plugin.toml
+expect 'entry = "widget.luau"' gamer-mode/plugin.toml
+lua -e 'local f=assert(io.open("gamer-mode/translations/en.json")):read("*a"); assert(f:find("auto_performance",1,true), "translations parse shape")'
 echo "scaffold: passed"
 ```
 
@@ -175,7 +175,7 @@ Expected: `scaffold: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/plugin.toml gamermode/translations/en.json tests/scaffold.sh
+git add gamer-mode/plugin.toml gamer-mode/translations/en.json tests/scaffold.sh
 git commit -m "feat: scaffold gamermode plugin manifest and translations"
 ```
 
@@ -184,7 +184,7 @@ git commit -m "feat: scaffold gamermode plugin manifest and translations"
 ### Task 2: Metrics parsers (pure functions) + tests
 
 **Files:**
-- Create: `gamermode/service.luau` (parsers only at this stage)
+- Create: `gamer-mode/service.luau` (parsers only at this stage)
 - Test: `tests/metrics.lua`
 
 **Step 1: Write the failing test `tests/metrics.lua`**
@@ -199,7 +199,7 @@ noctalia = {
     pluginDataDir = function() return "/tmp/gamermode-test" end,
 }
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- /proc/stat: first sample baselines, second computes
 local stat1 = "cpu  100 0 100 800 0 0 100 0 0 0\n"
@@ -231,7 +231,7 @@ print("metrics: passed")
 Run: `lua tests/metrics.lua`
 Expected: FAIL — `attempt to index a nil value` or missing functions
 
-**Step 3: Write `gamermode/service.luau` (parsers + module return)**
+**Step 3: Write `gamer-mode/service.luau` (parsers + module return)**
 
 ```lua
 --!nonstrict
@@ -285,7 +285,7 @@ Expected: `metrics: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/service.luau tests/metrics.lua
+git add gamer-mode/service.luau tests/metrics.lua
 git commit -m "feat: metric parsers for proc/stat, meminfo, nvidia-smi, sensors"
 ```
 
@@ -294,7 +294,7 @@ git commit -m "feat: metric parsers for proc/stat, meminfo, nvidia-smi, sensors"
 ### Task 3: Kill-list parsing + defaults fallback
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/targets.lua`
 
 **Step 1: Write the failing test `tests/targets.lua`**
@@ -316,7 +316,7 @@ noctalia = {
     },
 }
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- defaults when unset / malformed
 local defs = svc.parseTargets(nil)
@@ -350,7 +350,7 @@ print("targets: passed")
 Run: `lua tests/targets.lua`
 Expected: FAIL — `parseTargets` nil
 
-**Step 3: Add to `gamermode/service.luau` (before `return M`)**
+**Step 3: Add to `gamer-mode/service.luau` (before `return M`)**
 
 ```lua
 local VALID_KINDS = { process = true, ["user-service"] = true, ["system-service"] = true, container = true }
@@ -410,7 +410,7 @@ Expected: `targets: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/service.luau tests/targets.lua
+git add gamer-mode/service.luau tests/targets.lua
 git commit -m "feat: kill-list parsing with defaults and profile filtering"
 ```
 
@@ -419,7 +419,7 @@ git commit -m "feat: kill-list parsing with defaults and profile filtering"
 ### Task 4: Snapshot engine — build, persist, restore-plan
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/snapshot.lua`
 
 **Step 1: Write the failing test `tests/snapshot.lua`**
@@ -434,7 +434,7 @@ noctalia = {
     json = { encode = function(v) return tostring(v) end },
 }
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- snapshot shape from probe results
 local targets = {
@@ -471,7 +471,7 @@ print("snapshot: passed")
 Run: `lua tests/snapshot.lua`
 Expected: FAIL — functions nil
 
-**Step 3: Add to `gamermode/service.luau` (before `return M`)**
+**Step 3: Add to `gamer-mode/service.luau` (before `return M`)**
 
 ```lua
 local function snapshotPath()
@@ -551,7 +551,7 @@ Expected: `snapshot: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/service.luau tests/snapshot.lua
+git add gamer-mode/service.luau tests/snapshot.lua
 git commit -m "feat: snapshot build, persistence, restore planning"
 ```
 
@@ -560,7 +560,7 @@ git commit -m "feat: snapshot build, persistence, restore planning"
 ### Task 5: Probe/stop/start command construction + state mapping
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/commands.lua`
 
 **Step 1: Write the failing test `tests/commands.lua`**
@@ -574,7 +574,7 @@ noctalia = {
     pluginDataDir = function() return "/tmp/gamermode-test" end,
 }
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 
 -- probe commands per kind
 assert(svc.probeCmd({ kind = "process", match = "gslapper" }) == "pgrep -x 'gslapper'", "probe process")
@@ -610,7 +610,7 @@ print("commands: passed")
 Run: `lua tests/commands.lua`
 Expected: FAIL
 
-**Step 3: Add to `gamermode/service.luau` (before `return M`)**
+**Step 3: Add to `gamer-mode/service.luau` (before `return M`)**
 
 ```lua
 local function shellQuote(value)
@@ -654,7 +654,7 @@ Expected: `commands: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/service.luau tests/commands.lua
+git add gamer-mode/service.luau tests/commands.lua
 git commit -m "feat: probe/stop/start command construction with shell quoting"
 ```
 
@@ -663,7 +663,7 @@ git commit -m "feat: probe/stop/start command construction with shell quoting"
 ### Task 6: Service runtime — poll loop, state keys, command handler
 
 **Files:**
-- Modify: `gamermode/service.luau`
+- Modify: `gamer-mode/service.luau`
 - Test: `tests/runtime.lua`
 
 **Step 1: Write the failing test `tests/runtime.lua`**
@@ -692,7 +692,7 @@ noctalia = {
     tr = function(k) return k end,
 }
 
-local svc = dofile("gamermode/service.luau")
+local svc = dofile("gamer-mode/service.luau")
 svc.init()
 
 -- game_mode state published disabled without session file
@@ -720,7 +720,7 @@ print("runtime: passed")
 Run: `lua tests/runtime.lua`
 Expected: FAIL — `init` nil
 
-**Step 3: Add runtime wiring to `gamermode/service.luau` (before `return M`)**
+**Step 3: Add runtime wiring to `gamer-mode/service.luau` (before `return M`)**
 
 ```lua
 local lastStat = nil
@@ -876,7 +876,7 @@ Expected: all pass
 **Step 6: Commit**
 
 ```bash
-git add gamermode/service.luau tests/runtime.lua
+git add gamer-mode/service.luau tests/runtime.lua
 git commit -m "feat: service runtime with poll loop and toggle flow"
 ```
 
@@ -885,7 +885,7 @@ git commit -m "feat: service runtime with poll loop and toggle flow"
 ### Task 7: widget.luau
 
 **Files:**
-- Create: `gamermode/widget.luau`
+- Create: `gamer-mode/widget.luau`
 - Test: `tests/widget.lua`
 
 **Step 1: Write the failing test `tests/widget.lua`**
@@ -908,7 +908,7 @@ noctalia = {
     tr = function(k) return k end,
 }
 
-local w = dofile("gamermode/widget.luau")
+local w = dofile("gamer-mode/widget.luau")
 assert(glyphSet == "gamepad", "glyph set")
 assert(type(w.formatTooltip) == "function", "formatTooltip exposed")
 
@@ -931,12 +931,12 @@ print("widget: passed")
 Run: `lua tests/widget.lua`
 Expected: FAIL
 
-**Step 3: Write `gamermode/widget.luau`**
+**Step 3: Write `gamer-mode/widget.luau`**
 
 ```lua
 --!nonstrict
 
-local PANEL_ID = "nomadcxx/gamermode:main"
+local PANEL_ID = "nomadcxx/gamer-mode:main"
 local gameMode = noctalia.state.get("game_mode") or { enabled = false }
 local metrics = noctalia.state.get("metrics") or {}
 
@@ -998,7 +998,7 @@ Expected: `widget: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/widget.luau tests/widget.lua
+git add gamer-mode/widget.luau tests/widget.lua
 git commit -m "feat: bar widget with live tooltip and click toggle"
 ```
 
@@ -1007,7 +1007,7 @@ git commit -m "feat: bar widget with live tooltip and click toggle"
 ### Task 8: panel.luau
 
 **Files:**
-- Create: `gamermode/panel.luau`
+- Create: `gamer-mode/panel.luau`
 - Test: `tests/panel.lua`
 
 **Step 1: Write the failing test `tests/panel.lua`**
@@ -1032,7 +1032,7 @@ noctalia = {
     tr = function(k) return k end,
 }
 
-local p = dofile("gamermode/panel.luau")
+local p = dofile("gamer-mode/panel.luau")
 assert(type(p.buildRows) == "function", "buildRows exposed")
 local rows = p.buildRows(noctalia.state.get("metrics"), true)
 assert(#rows == 4, "4 metric rows (cpu/ram/gpu/vram), got " .. #rows)
@@ -1052,7 +1052,7 @@ print("panel: passed")
 Run: `lua tests/panel.lua`
 Expected: FAIL
 
-**Step 3: Write `gamermode/panel.luau`**
+**Step 3: Write `gamer-mode/panel.luau`**
 
 ```lua
 --!nonstrict
@@ -1159,7 +1159,7 @@ Expected: `panel: passed`
 **Step 5: Commit**
 
 ```bash
-git add gamermode/panel.luau tests/panel.lua
+git add gamer-mode/panel.luau tests/panel.lua
 git commit -m "feat: metrics panel with toggle and suspended list"
 ```
 
