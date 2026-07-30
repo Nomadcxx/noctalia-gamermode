@@ -343,7 +343,7 @@ end
 local function header()
     local logo = logoPath()
     local mark = logo
-            and ui.image({ path = logo, width = 34, height = 34, fit = "contain" })
+            and ui.image({ path = logo, width = 42, height = 42, fit = "contain" })
         -- The glyph is the fallback for the one case that can fail: no plugin data
         -- directory to write the logo into.
         or ui.glyph({ name = "device-gamepad-2", size = 22, color = "primary" })
