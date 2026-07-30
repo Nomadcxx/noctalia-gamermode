@@ -8,6 +8,12 @@
 
 local MIB_PER_GIB = 1024
 
+-- The panel is wide enough that a control stretched across it reads badly: a select
+-- holding the word "balanced" does not want four hundred pixels. The label takes the left,
+-- a spacer eats the slack, and the control keeps a fixed, readable width on the right.
+local CONTROL_LABEL_WIDTH = 130
+local CONTROL_WIDTH = 200
+
 local M = {}
 
 local metrics = noctalia.state.get("metrics") or { available = false }
@@ -368,11 +374,12 @@ local function powerRow()
         return ui.label({ text = tr("panel.power_unavailable"), color = "on_surface_variant", fontSize = 11 })
     end
     return ui.row({ align = "center", gap = 8 }, {
-        ui.label({ text = tr("panel.power_profile"), color = "on_surface_variant", width = 110 }),
+        ui.label({ text = tr("panel.power_profile"), color = "on_surface_variant", width = CONTROL_LABEL_WIDTH }),
+        ui.spacer({ flexGrow = 1 }),
         ui.select({
             options = power.profiles,
             selectedIndex = selectedPowerIndex(),
-            flexGrow = 1,
+            width = CONTROL_WIDTH,
             onChange = "onPowerProfileChanged",
         }),
     })
@@ -383,8 +390,9 @@ end
 local function modeProfileRow()
     if gameMode.enabled then
         return ui.row({ align = "center", gap = 8 }, {
-            ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = 110 }),
-            ui.label({ text = tr("panel.profiles." .. tostring(gameMode.profile or "light")), flexGrow = 1 }),
+            ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = CONTROL_LABEL_WIDTH }),
+            ui.spacer({ flexGrow = 1 }),
+            ui.label({ text = tr("panel.profiles." .. tostring(gameMode.profile or "light")), width = CONTROL_WIDTH }),
         })
     end
     local options = {}
@@ -392,11 +400,12 @@ local function modeProfileRow()
         options[index] = tr("panel.profiles." .. name)
     end
     return ui.row({ align = "center", gap = 8 }, {
-        ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = 110 }),
+        ui.label({ text = tr("panel.mode_profile"), color = "on_surface_variant", width = CONTROL_LABEL_WIDTH }),
+        ui.spacer({ flexGrow = 1 }),
         ui.select({
             options = options,
             selectedIndex = selectedSuspendIndex(),
-            flexGrow = 1,
+            width = CONTROL_WIDTH,
             onChange = "onSuspendProfileChanged",
         }),
     })

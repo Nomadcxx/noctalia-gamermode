@@ -71,7 +71,7 @@
     "state_on": "Running",
     "stopped": "stopped",
     "suspended": "Suspended",
-    "title": "Gamer Mode",
+    "title": "gamer-mode",
     "working": "Working..."
   },
   "notify": {

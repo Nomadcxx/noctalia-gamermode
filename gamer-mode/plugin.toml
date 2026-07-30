@@ -1,6 +1,6 @@
 id = "nomadcxx/gamer-mode"
 name = "Gamer Mode"
-version = "0.5.0"
+version = "0.5.1"
 plugin_api = 19
 author = "Nomadcxx"
 license = "MIT"
@@ -79,7 +79,7 @@ entry = "service.luau"
 [[panel]]
 id = "main"
 entry = "panel.luau"
-width = 470
+width = 560
 height = 720
 placement = "attached"
 position = "auto"
