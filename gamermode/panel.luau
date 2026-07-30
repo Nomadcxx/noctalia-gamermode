@@ -87,7 +87,10 @@ end
 function M.suspendedLines(gm)
     local lines = {}
     for _, target in ipairs((type(gm) == "table" and gm.suspended) or {}) do
-        lines[#lines + 1] = string.format("%s (%s)", tostring(target.match), tostring(target.kind))
+        -- Frozen and stopped are materially different to a user reading this list: one
+        -- resumes exactly where it left off, the other was shut down and restarted.
+        local state = target.action == "freeze" and tr("panel.frozen") or tr("panel.stopped")
+        lines[#lines + 1] = string.format("%s (%s, %s)", tostring(target.match), tostring(target.kind), state)
     end
     return lines
 end

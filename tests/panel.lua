@@ -43,7 +43,10 @@ mock.published.game_mode = {
     enabled = true,
     busy = false,
     profile = "light",
-    suspended = { { match = "gslapper", kind = "process" }, { match = "spotifyd.service", kind = "user-service" } },
+    suspended = {
+        { match = "gslapper", kind = "process", action = "freeze" },
+        { match = "ollama.service", kind = "system-service", action = "stop" },
+    },
 }
 mock.published.power = { available = true, active = "performance", profiles = { "balanced", "performance", "power-saver" } }
 
@@ -94,7 +97,15 @@ assert(clamped[1].progress == 1 and clamped[2].progress == 0, "row progress clam
 
 local lines = p.suspendedLines(mock.published.game_mode)
 assert(#lines == 2, "two suspended entries, got " .. #lines)
-assert(lines[1]:find("gslapper", 1, true) and lines[1]:find("process", 1, true), "entry names its kind: " .. lines[1])
+assert(lines[1]:find("gslapper", 1, true), "entry names the target: " .. lines[1])
+assert(lines[1]:find("process", 1, true), "entry names the kind: " .. lines[1])
+-- A frozen target and a stopped one are not the same thing to a user deciding whether to
+-- worry about it, so the action is spelled out.
+assert(lines[1]:find("panel.frozen", 1, true), "frozen target labelled: " .. lines[1])
+assert(lines[2]:find("panel.stopped", 1, true), "stopped target labelled: " .. lines[2])
+-- An entry with no action reads as stopped, matching the engine default.
+local legacyLines = p.suspendedLines({ enabled = true, suspended = { { match = "x", kind = "process" } } })
+assert(legacyLines[1]:find("panel.stopped", 1, true), "absent action reads as stopped: " .. legacyLines[1])
 assert(#p.suspendedLines({ enabled = false, suspended = {} }) == 0, "nothing listed while disabled")
 assert(#p.suspendedLines(nil) == 0, "nil game_mode lists nothing")
 assert(#p.suspendedLines({ enabled = true }) == 0, "missing suspended list is tolerated")
