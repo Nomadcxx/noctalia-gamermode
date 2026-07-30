@@ -76,6 +76,51 @@ local VALID_KINDS = {
     container = true,
 }
 
+-- Targets that must never be stopped or frozen. Acting on any of these ends the session,
+-- kills audio or network, or kills the game gamer mode exists to serve. Deliberately not
+-- overridable: the cost of a wrong entry is a dead session, and an override flag is
+-- exactly the field a user copies from a forum post without reading.
+local DENIED = {}
+for _, name in ipairs({
+    -- session and display
+    "niri", "hyprland", "sway", "river", "wayfire", "labwc", "gnome-shell",
+    "kwin_wayland", "plasmashell", "xorg", "xwayland", "greetd", "sddm", "gdm",
+    -- the shell hosting this plugin
+    "noctalia", "quickshell",
+    -- audio
+    "pipewire", "pipewire-pulse", "wireplumber", "pulseaudio",
+    -- core IPC and session management
+    "systemd", "systemd-logind", "dbus-broker", "dbus-daemon", "elogind",
+    -- network
+    "networkmanager", "wpa_supplicant", "iwd", "systemd-networkd",
+    -- the game stack itself
+    "steam", "steamwebhelper", "gamescope", "wine", "wineserver", "proton",
+    "lutris", "heroic", "bottles", "gamemoded",
+}) do
+    DENIED[name] = true
+end
+
+local UNIT_SUFFIXES = { ".service", ".timer", ".socket" }
+
+-- baseName lowercases and strips a unit suffix so "Steam", "steam" and "steam.service"
+-- all collapse onto the same denylist key.
+local function baseName(match)
+    local name = tostring(match):lower()
+    for _, suffix in ipairs(UNIT_SUFFIXES) do
+        if #name > #suffix and name:sub(-#suffix) == suffix then
+            return name:sub(1, #name - #suffix)
+        end
+    end
+    return name
+end
+
+function M.isDenied(match)
+    if type(match) ~= "string" or match == "" then
+        return false
+    end
+    return DENIED[baseName(match)] == true
+end
+
 -- Defaults are deliberately conservative: `light` covers wallpaper/media-adjacent
 -- helpers, `heavy` adds the self-hosted media stack. Users override the whole list
 -- through the advanced `targets` setting.
@@ -99,19 +144,27 @@ end
 
 M.validateShellValue = validateShellValue
 
+-- validEntry returns ok plus a human reason, so parseTargets can tell the user which of
+-- their entries was dropped and why rather than only how many.
 local function validEntry(entry)
-    if type(entry) ~= "table" or not VALID_KINDS[entry.kind] then
-        return false
+    if type(entry) ~= "table" then
+        return false, "not an object"
+    end
+    if not VALID_KINDS[entry.kind] then
+        return false, "unknown kind " .. tostring(entry.kind)
     end
     if not validateShellValue(entry.match) then
-        return false
+        return false, "match is empty or contains a control character"
+    end
+    if M.isDenied(entry.match) then
+        return false, "'" .. entry.match .. "' is protected and can never be suspended"
     end
     if type(entry.profiles) ~= "table" or #entry.profiles == 0 then
-        return false
+        return false, "profiles must be a non-empty array"
     end
     for _, profile in ipairs(entry.profiles) do
         if type(profile) ~= "string" or profile == "" then
-            return false
+            return false, "profile names must be non-empty strings"
         end
     end
     return true
@@ -139,16 +192,13 @@ function M.parseTargets(raw)
             noctalia.log("gamermode: ignoring invalid targets setting: " .. tostring(decodeError or "not a JSON array"))
         else
             local out = {}
-            local rejected = 0
             for _, entry in ipairs(decoded) do
-                if validEntry(entry) then
+                local ok, reason = validEntry(entry)
+                if ok then
                     out[#out + 1] = { match = entry.match, kind = entry.kind, profiles = entry.profiles }
                 else
-                    rejected = rejected + 1
+                    noctalia.log("gamermode: dropped target: " .. tostring(reason))
                 end
-            end
-            if rejected > 0 then
-                noctalia.log("gamermode: dropped " .. rejected .. " invalid target entries")
             end
             if #out > 0 then
                 return copyTargets(out)
@@ -185,10 +235,21 @@ end
 
 M.shellQuote = shellQuote
 
+-- safeMatch is the single choke point for shell interpolation: it refuses protected
+-- targets and anything that cannot be quoted. Builders return nil rather than emitting a
+-- command, so a denied entry surviving in an old session file still cannot act.
+local function safeMatch(target)
+    if M.isDenied(target.match) then
+        noctalia.log("gamermode: refusing to act on protected target " .. tostring(target.match))
+        return nil
+    end
+    return shellQuote(target.match)
+end
+
 -- Probes read state only, so none of them needs elevation -- `systemctl is-active`
 -- works unprivileged even for system units.
 function M.probeCmd(target)
-    local match = shellQuote(target.match)
+    local match = safeMatch(target)
     if not match then
         return nil
     end
@@ -205,7 +266,7 @@ function M.probeCmd(target)
 end
 
 function M.stopCmd(target)
-    local match = shellQuote(target.match)
+    local match = safeMatch(target)
     if not match then
         return nil
     end
@@ -227,7 +288,7 @@ end
 -- working directory, so gamer mode cannot honestly relaunch one. Users who need a
 -- process brought back should target the unit that supervises it instead.
 function M.startCmd(target)
-    local match = shellQuote(target.match)
+    local match = safeMatch(target)
     if not match then
         return nil
     end
