@@ -172,4 +172,133 @@ function M.targetsForProfile(targets, profile)
     return out
 end
 
+-- ── session snapshot ──
+
+local SNAPSHOT_VERSION = 1
+local UP_STATES = { running = true, active = true }
+
+local function snapshotPath()
+    local directory = noctalia.pluginDataDir()
+    if not directory then
+        return nil
+    end
+    return directory .. "/session.json"
+end
+
+function M.buildSnapshot(profile, powerProfileBefore, probedTargets)
+    return {
+        version = SNAPSHOT_VERSION,
+        profile = profile,
+        power_profile_before = powerProfileBefore,
+        targets = probedTargets,
+    }
+end
+
+-- restorePlan answers "what may gamer mode start back up?". A target qualifies only if
+-- it was up when gamer mode began and is still down now: that keeps a manual restart
+-- from being stomped and keeps something that was already off from being started.
+-- `stateOf` returns the live state string, or nil when it could not be determined -- in
+-- which case the target is left alone.
+function M.restorePlan(snap, stateOf)
+    local plan = {}
+    for _, target in ipairs((snap and snap.targets) or {}) do
+        if UP_STATES[target.was] and stateOf(target.match) == "down" then
+            plan[#plan + 1] = target
+        end
+    end
+    return plan
+end
+
+local function validSnapshotTarget(entry)
+    return type(entry) == "table"
+        and validateShellValue(entry.match) ~= nil
+        and VALID_KINDS[entry.kind] ~= nil
+        and type(entry.was) == "string"
+end
+
+function M.writeSnapshot(snap)
+    local path = snapshotPath()
+    if not path then
+        noctalia.log("gamermode: no plugin data dir, cannot persist the session")
+        return false
+    end
+
+    local encoded, encodeError = noctalia.json.encode(snap)
+    if not encoded then
+        noctalia.log("gamermode: could not encode the session: " .. tostring(encodeError))
+        return false
+    end
+
+    noctalia.mkdirAll(noctalia.pluginDataDir())
+    -- Write-then-rename: a shell crash mid-write must not leave a half-written session
+    -- that would be read back as "no session" while targets are still suspended.
+    local temporary = path .. ".tmp"
+    if not noctalia.writeFile(temporary, encoded) then
+        noctalia.log("gamermode: could not write the session file")
+        return false
+    end
+    if not noctalia.renameFile(temporary, path) then
+        noctalia.removeFile(temporary)
+        noctalia.log("gamermode: could not replace the session file")
+        return false
+    end
+    return true
+end
+
+-- readSnapshot returns nil for anything it cannot trust. Callers treat nil as "gamer
+-- mode is off", which is the safe reading: it never invents targets to restart.
+function M.readSnapshot()
+    local path = snapshotPath()
+    if not path then
+        return nil
+    end
+    local contents = noctalia.readFile(path)
+    if not contents then
+        return nil
+    end
+
+    local decoded, decodeError = noctalia.json.decode(contents)
+    if type(decoded) ~= "table" then
+        noctalia.log("gamermode: ignoring unreadable session file: " .. tostring(decodeError or "not an object"))
+        return nil
+    end
+    if decoded.version ~= SNAPSHOT_VERSION then
+        noctalia.log("gamermode: ignoring session file with version " .. tostring(decoded.version))
+        return nil
+    end
+    if type(decoded.targets) ~= "table" then
+        noctalia.log("gamermode: ignoring session file without a target list")
+        return nil
+    end
+
+    -- Keep the entries that are still usable rather than discarding the whole session:
+    -- dropping it would report gamer mode as off while targets stay suspended.
+    local targets = {}
+    local dropped = 0
+    for _, entry in ipairs(decoded.targets) do
+        if validSnapshotTarget(entry) then
+            targets[#targets + 1] = { match = entry.match, kind = entry.kind, was = entry.was }
+        else
+            dropped = dropped + 1
+        end
+    end
+    if dropped > 0 then
+        noctalia.log("gamermode: dropped " .. dropped .. " unusable entries from the session file")
+    end
+
+    return {
+        version = decoded.version,
+        profile = type(decoded.profile) == "string" and decoded.profile or "light",
+        power_profile_before = type(decoded.power_profile_before) == "string" and decoded.power_profile_before or nil,
+        targets = targets,
+    }
+end
+
+function M.deleteSnapshot()
+    local path = snapshotPath()
+    if path then
+        noctalia.removeFile(path)
+    end
+end
+
 return M
