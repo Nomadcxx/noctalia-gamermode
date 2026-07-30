@@ -73,8 +73,16 @@ local VALID_KINDS = {
     process = true,
     ["user-service"] = true,
     ["system-service"] = true,
+    ["user-timer"] = true,
+    ["system-timer"] = true,
     container = true,
 }
+
+-- Timer kinds share systemctl with the service kinds but must name a *.timer unit, and
+-- cannot be frozen -- a timer has no process to signal.
+local TIMER_KINDS = { ["user-timer"] = true, ["system-timer"] = true }
+
+local VALID_ACTIONS = { stop = true, freeze = true }
 
 -- Targets that must never be stopped or frozen. Acting on any of these ends the session,
 -- kills audio or network, or kills the game gamer mode exists to serve. Deliberately not
@@ -159,6 +167,17 @@ local function validEntry(entry)
     if M.isDenied(entry.match) then
         return false, "'" .. entry.match .. "' is protected and can never be suspended"
     end
+    -- `systemctl is-active fstrim` resolves to fstrim.service, so a timer target that does
+    -- not name its unit would silently act on the wrong one.
+    if TIMER_KINDS[entry.kind] and entry.match:lower():sub(-6) ~= ".timer" then
+        return false, "timer target '" .. entry.match .. "' must name a .timer unit"
+    end
+    if entry.action ~= nil and not VALID_ACTIONS[entry.action] then
+        return false, "unknown action " .. tostring(entry.action)
+    end
+    if entry.action == "freeze" and TIMER_KINDS[entry.kind] then
+        return false, "a timer cannot be frozen, only stopped"
+    end
     if type(entry.profiles) ~= "table" or #entry.profiles == 0 then
         return false, "profiles must be a non-empty array"
     end
@@ -177,7 +196,12 @@ local function copyTargets(list)
         for profileIndex, profile in ipairs(entry.profiles) do
             profiles[profileIndex] = profile
         end
-        out[index] = { match = entry.match, kind = entry.kind, profiles = profiles }
+        out[index] = {
+            match = entry.match,
+            kind = entry.kind,
+            action = entry.action,
+            profiles = profiles,
+        }
     end
     return out
 end
@@ -195,12 +219,27 @@ function M.parseTargets(raw)
             for _, entry in ipairs(decoded) do
                 local ok, reason = validEntry(entry)
                 if ok then
-                    out[#out + 1] = { match = entry.match, kind = entry.kind, profiles = entry.profiles }
+                    out[#out + 1] = {
+                        match = entry.match,
+                        kind = entry.kind,
+                        action = entry.action,
+                        profiles = entry.profiles,
+                    }
                 else
                     noctalia.log("gamermode: dropped target: " .. tostring(reason))
                 end
             end
             if #out > 0 then
+                -- Allowed, but the user should know it is a one-way trip.
+                for _, entry in ipairs(out) do
+                    if entry.kind == "process" and M.actionOf(entry) == "stop" then
+                        noctalia.log(
+                            "gamermode: '" .. entry.match .. "' is a process with action=stop, which is "
+                                .. "unrecoverable -- a bare process has no argv to relaunch from. "
+                                .. "Use action=freeze, or target the unit that supervises it."
+                        )
+                    end
+                end
                 return copyTargets(out)
             end
             noctalia.log("gamermode: targets setting had no usable entries, using defaults")
@@ -255,9 +294,9 @@ function M.probeCmd(target)
     end
     if target.kind == "process" then
         return "pgrep -x " .. match
-    elseif target.kind == "user-service" then
+    elseif target.kind == "user-service" or target.kind == "user-timer" then
         return "systemctl --user is-active " .. match
-    elseif target.kind == "system-service" then
+    elseif target.kind == "system-service" or target.kind == "system-timer" then
         return "systemctl is-active " .. match
     elseif target.kind == "container" then
         return "docker inspect -f '{{.State.Running}}' " .. match
@@ -272,9 +311,9 @@ function M.stopCmd(target)
     end
     if target.kind == "process" then
         return "pkill -x " .. match
-    elseif target.kind == "user-service" then
+    elseif target.kind == "user-service" or target.kind == "user-timer" then
         return "systemctl --user stop " .. match
-    elseif target.kind == "system-service" then
+    elseif target.kind == "system-service" or target.kind == "system-timer" then
         -- `-n` fails immediately instead of prompting: a bar click must never block on a
         -- password. Without a NOPASSWD rule the target is skipped and logged.
         return "sudo -n systemctl stop " .. match
@@ -292,12 +331,64 @@ function M.startCmd(target)
     if not match then
         return nil
     end
-    if target.kind == "user-service" then
+    if target.kind == "user-service" or target.kind == "user-timer" then
         return "systemctl --user start " .. match
-    elseif target.kind == "system-service" then
+    elseif target.kind == "system-service" or target.kind == "system-timer" then
         return "sudo -n systemctl start " .. match
     elseif target.kind == "container" then
         return "docker start " .. match
+    end
+    return nil
+end
+
+-- actionOf normalises the optional `action` field. Absent means "stop", which keeps every
+-- pre-existing config and session file meaning exactly what it did before.
+function M.actionOf(target)
+    return target.action == "freeze" and "freeze" or "stop"
+end
+
+-- freeze suspends a target in place: SIGSTOP for processes and units, docker pause for
+-- containers. Unlike stop it is perfectly reversible and loses no state, which makes it
+-- the right action for anything the user might return to -- a browser, an editor, an
+-- animated wallpaper daemon.
+--
+-- renice was measured and rejected as the reversible option: with RLIMIT_NICE=0 an
+-- unprivileged process can lower priority but never raise it back, so it would
+-- permanently degrade anything it touched.
+function M.freezeCmd(target)
+    local match = safeMatch(target)
+    if not match then
+        return nil
+    end
+    if target.kind == "process" then
+        return "pkill -STOP -x " .. match
+    elseif target.kind == "user-service" then
+        -- --kill-whom=all is explicit because `systemctl kill --help` does not state its
+        -- default, and freezing a unit must reach every process in its cgroup.
+        return "systemctl --user kill --kill-whom=all -s SIGSTOP " .. match
+    elseif target.kind == "system-service" then
+        return "sudo -n systemctl kill --kill-whom=all -s SIGSTOP " .. match
+    elseif target.kind == "container" then
+        -- docker pause is the cgroup freezer: an exact match for freeze semantics.
+        return "docker pause " .. match
+    end
+    -- Timer kinds fall through: there is no process to signal.
+    return nil
+end
+
+function M.thawCmd(target)
+    local match = safeMatch(target)
+    if not match then
+        return nil
+    end
+    if target.kind == "process" then
+        return "pkill -CONT -x " .. match
+    elseif target.kind == "user-service" then
+        return "systemctl --user kill --kill-whom=all -s SIGCONT " .. match
+    elseif target.kind == "system-service" then
+        return "sudo -n systemctl kill --kill-whom=all -s SIGCONT " .. match
+    elseif target.kind == "container" then
+        return "docker unpause " .. match
     end
     return nil
 end
