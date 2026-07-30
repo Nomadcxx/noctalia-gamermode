@@ -1595,6 +1595,38 @@ function M.runCleanup(job)
     runner()
 end
 
+-- ── diagnostics ──
+
+-- What this machine reports, written to the shell log.
+--
+-- GPU readings come from the shell, which uses NVML for NVIDIA and sysfs for everything
+-- else, and the two do not expose the same fields. Rather than guess at what an AMD or
+-- Intel box provides, this prints the raw sample so anyone can say what their hardware
+-- actually reports. It is also the first thing to run when a target refuses to act.
+function M.diagnose()
+    local raw = noctalia.systemStats()
+    noctalia.log("gamermode diagnose: stats = " .. tostring(noctalia.json.encode(raw)))
+    noctalia.log("gamermode diagnose: metrics = " .. tostring(noctalia.json.encode(M.normalize(raw))))
+
+    local tools = {}
+    for _, name in ipairs({ "pgrep", "pkill", "systemctl", "pkexec", "docker", "powerprofilesctl", "du" }) do
+        tools[#tools + 1] = name .. "=" .. tostring(noctalia.commandExists(name) == true)
+    end
+    noctalia.log("gamermode diagnose: tools " .. table.concat(tools, " "))
+    noctalia.log(
+        "gamermode diagnose: elevation pkexec=" .. tostring(M.canElevate) .. " systemctl=" .. tostring(M.systemctlPath)
+    )
+
+    local caches = M.shaderCachePaths()
+    noctalia.log("gamermode diagnose: shader caches = " .. (#caches > 0 and table.concat(caches, " ") or "none"))
+
+    local snap = M.readSnapshot()
+    noctalia.log(
+        "gamermode diagnose: session = "
+            .. (snap and (snap.profile .. ", " .. #snap.targets .. " targets") or "none")
+    )
+end
+
 -- ── commands ──
 
 -- Commands arrive as `command` state writes from the panel and widget. The nonce makes
@@ -1623,6 +1655,8 @@ function M.handleCommand(command)
         M.setPowerProfile(command.profile)
     elseif action == "cleanup" then
         M.runCleanup(command.job)
+    elseif action == "diagnose" then
+        M.diagnose()
     else
         noctalia.log("gamermode: unknown command action " .. tostring(action))
     end
@@ -1716,6 +1750,8 @@ function onIpc(event)
         M.enable()
     elseif event == "disable" then
         M.disable()
+    elseif event == "diagnose" then
+        M.diagnose()
     end
 end
 
