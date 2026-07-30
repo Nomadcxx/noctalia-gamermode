@@ -513,6 +513,60 @@ function M.actionOf(target)
     return target.action == "freeze" and "freeze" or "stop"
 end
 
+-- systemctl takes many units per invocation, and that is the whole difference between one
+-- password prompt and one per unit.
+--
+-- polkit's auth_admin_keep retains the authorisation against the subject that answered the
+-- prompt, and the subject systemd reports is the calling `systemctl` process. Seven units
+-- through seven processes are seven subjects, so nothing is ever reused: measured as seven
+-- dialogs, one per unit. Through a single process the first unit prompts and the remaining
+-- StopUnit calls hit the retained authorisation.
+--
+-- Batching costs per-unit exit codes. It is affordable because nothing depends on them:
+-- the snapshot records what a target was doing before, not whether its stop returned zero,
+-- and restore probes live state rather than trusting a recorded outcome. systemctl still
+-- names each unit it could not act on, and that stderr is logged whole.
+local BATCH_VERBS = {
+    stop = "systemctl stop",
+    start = "systemctl start",
+    freeze = "systemctl kill --kill-whom=all -s SIGSTOP",
+    thaw = "systemctl kill --kill-whom=all -s SIGCONT",
+}
+
+-- Timers have no process to signal, so they can only be stopped and started.
+local function batchable(verb, kind)
+    if not M.needsPrivilege(kind) then
+        return false
+    end
+    if verb == "freeze" or verb == "thaw" then
+        return kind == "system-service"
+    end
+    return true
+end
+
+-- Returns the batched command and the targets it covers, so the caller can report against
+-- exactly what went in. Targets refused by safeMatch are left out of both.
+function M.batchCmd(verb, targets)
+    local prefix = BATCH_VERBS[verb]
+    if not prefix then
+        return nil, {}
+    end
+    local quoted, covered = {}, {}
+    for _, target in ipairs(targets) do
+        if batchable(verb, target.kind) then
+            local match = safeMatch(target)
+            if match then
+                quoted[#quoted + 1] = match
+                covered[#covered + 1] = target
+            end
+        end
+    end
+    if #quoted == 0 then
+        return nil, {}
+    end
+    return prefix .. " " .. table.concat(quoted, " "), covered
+end
+
 -- freeze suspends a target in place: SIGSTOP for processes and units, docker pause for
 -- containers. Unlike stop it is perfectly reversible and loses no state, which makes it
 -- the right action for anything the user might return to -- a browser, an editor, an
@@ -1052,15 +1106,35 @@ end
 -- abandon the rest.
 local function suspendAll(probed, done)
     local jobs = {}
+
+    -- System units go out in one invocation per verb, so the user answers one prompt
+    -- rather than one per unit. Everything else stays per-target: pkill and docker need
+    -- no authorisation, so batching them would only blur which one failed.
+    local grouped = { freeze = {}, stop = {} }
+    local loose = {}
     for _, entry in ipairs(probed) do
         if UP_STATES[entry.was] then
             local action = M.actionOf(entry)
-            local command = action == "freeze" and M.freezeCmd(entry) or M.stopCmd(entry)
-            if command then
-                jobs[#jobs + 1] = { entry = entry, command = command, action = action }
+            if batchable(action, entry.kind) then
+                table.insert(grouped[action], entry)
             else
-                noctalia.log("gamermode: no " .. action .. " command for " .. tostring(entry.match))
+                table.insert(loose, { entry = entry, action = action })
             end
+        end
+    end
+
+    for verb, entries in pairs(grouped) do
+        local command, covered = M.batchCmd(verb, entries)
+        if command then
+            jobs[#jobs + 1] = { command = command, action = verb, entries = covered, privileged = true }
+        end
+    end
+    for _, item in ipairs(loose) do
+        local command = item.action == "freeze" and M.freezeCmd(item.entry) or M.stopCmd(item.entry)
+        if command then
+            jobs[#jobs + 1] = { command = command, action = item.action, entries = { item.entry } }
+        else
+            noctalia.log("gamermode: no " .. item.action .. " command for " .. tostring(item.entry.match))
         end
     end
 
@@ -1073,10 +1147,14 @@ local function suspendAll(probed, done)
     for _, job in ipairs(jobs) do
         run(job.command, function(result)
             if succeeded(result) then
-                suspended = suspended + 1
+                suspended = suspended + #job.entries
             else
+                local names = {}
+                for _, entry in ipairs(job.entries) do
+                    names[#names + 1] = entry.match
+                end
                 noctalia.log(
-                    "gamermode: could not " .. job.action .. " " .. job.entry.match
+                    "gamermode: could not " .. job.action .. " " .. table.concat(names, ", ")
                         .. ": " .. describeFailure(result)
                 )
             end
@@ -1084,7 +1162,7 @@ local function suspendAll(probed, done)
             if pending == 0 then
                 done(suspended)
             end
-        end, M.needsPrivilege(job.entry.kind))
+        end, job.privileged)
     end
 end
 
@@ -1153,8 +1231,10 @@ function M.disable()
         return "down"
     end)
 
-    local pending = #thawTargets + #candidates
     local restored = 0
+    -- Held at one until every job has been queued, so a batch that completes inline cannot
+    -- finish the session while later phases are still being set up.
+    local pending = 1
 
     local function finish()
         M.deleteSnapshot()
@@ -1170,11 +1250,6 @@ function M.disable()
         end
     end
 
-    if pending == 0 then
-        finish()
-        return
-    end
-
     local function step()
         pending = pending - 1
         if pending == 0 then
@@ -1182,51 +1257,93 @@ function M.disable()
         end
     end
 
+    -- launch counts one job whatever it covers, so a batch and a single command are the
+    -- same thing to the caller.
+    local function launch(command, privileged, covered, verb)
+        pending = pending + 1
+        run(command, function(result)
+            if succeeded(result) then
+                restored = restored + #covered
+            else
+                local names = {}
+                for _, target in ipairs(covered) do
+                    names[#names + 1] = target.match
+                end
+                noctalia.log(
+                    "gamermode: could not " .. verb .. " " .. table.concat(names, ", ")
+                        .. ": " .. describeFailure(result)
+                )
+            end
+            step()
+        end, privileged)
+    end
+
     -- Freeze targets: thaw unconditionally, no probe. A frozen process still appears in
     -- pgrep so no probe could tell "still frozen" from "running", and SIGCONT to a running
     -- process is a verified no-op.
+    local thawCommand, thawCovered = M.batchCmd("thaw", thawTargets)
+    if thawCommand then
+        launch(thawCommand, true, thawCovered, "thaw")
+    end
     for _, target in ipairs(thawTargets) do
-        local thawCommand = M.thawCmd(target)
-        if not thawCommand then
-            noctalia.log("gamermode: no thaw command for " .. tostring(target.match))
-            step()
-        else
-            run(thawCommand, function(result)
-                if succeeded(result) then
-                    restored = restored + 1
-                else
-                    noctalia.log("gamermode: could not thaw " .. target.match .. ": " .. describeFailure(result))
-                end
-                step()
-            end, M.needsPrivilege(target.kind))
+        if not batchable("thaw", target.kind) then
+            local command = M.thawCmd(target)
+            if command then
+                launch(command, false, { target }, "thaw")
+            else
+                noctalia.log("gamermode: no thaw command for " .. tostring(target.match))
+            end
         end
     end
 
-    -- Stop targets: probe, then start only if still down.
-    for _, target in ipairs(candidates) do
-        local startCommand = M.startCmd(target)
-        if not startCommand then
-            -- Processes cannot be relaunched generically; say so once, per target.
-            noctalia.log("gamermode: cannot restart " .. tostring(target.match) .. " (" .. tostring(target.kind) .. ")")
-            step()
-        else
-            run(M.probeCmd(target), function(probeResult)
-                if M.wasState(target.kind, probeResult and probeResult.stdout) ~= "down" then
-                    -- Back up already, by hand or by its own supervisor. Leave it alone.
-                    step()
-                    return
+    -- Stop targets: probe every candidate, then start only those still down. The probes
+    -- are unprivileged and run first so the single privileged start covers exactly the
+    -- units that need it, rather than prompting for units already back up.
+    local stillDown = {}
+
+    local function startStillDown()
+        local startCommand, startCovered = M.batchCmd("start", stillDown)
+        if startCommand then
+            launch(startCommand, true, startCovered, "restart")
+        end
+        for _, target in ipairs(stillDown) do
+            if not batchable("start", target.kind) then
+                local command = M.startCmd(target)
+                if command then
+                    launch(command, false, { target }, "restart")
                 end
-                run(startCommand, function(startResult)
-                    if succeeded(startResult) then
-                        restored = restored + 1
-                    else
-                        noctalia.log(
-                            "gamermode: could not restart " .. target.match .. ": " .. describeFailure(startResult)
-                        )
+            end
+        end
+        step()
+    end
+
+    local probesLeft = #candidates
+    if probesLeft == 0 then
+        startStillDown()
+    else
+        local function probeDone()
+            probesLeft = probesLeft - 1
+            if probesLeft == 0 then
+                startStillDown()
+            end
+        end
+        for _, target in ipairs(candidates) do
+            if not M.startCmd(target) then
+                -- Processes cannot be relaunched generically; say so once, per target.
+                noctalia.log(
+                    "gamermode: cannot restart " .. tostring(target.match) .. " (" .. tostring(target.kind) .. ")"
+                )
+                probeDone()
+            else
+                run(M.probeCmd(target), function(probeResult)
+                    if M.wasState(target.kind, probeResult and probeResult.stdout) == "down" then
+                        stillDown[#stillDown + 1] = target
                     end
-                    step()
-                end, M.needsPrivilege(target.kind))
-            end)
+                    -- Anything already back up, by hand or by its own supervisor, is left
+                    -- out of the start batch.
+                    probeDone()
+                end)
+            end
         end
     end
 end

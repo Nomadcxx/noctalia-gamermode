@@ -190,10 +190,12 @@ Stopping or starting a system unit needs authorisation. The plugin calls
 polkit, and polkit asks your desktop's authentication agent to prompt.
 
 `org.freedesktop.systemd1.manage-units` resolves to `auth_admin_keep` for an
-active local session, so an administrator is asked once and the answer is cached
-for the rest of the batch. The plugin runs these one at a time so a single dialog
-covers them, and allows two minutes for each, which is long enough to read a
-prompt and type.
+active local session, which asks an administrator once and then retains the
+answer. It retains it against the subject that gave it, and the subject systemd
+reports is the calling `systemctl` process, so a unit per process is a prompt per
+unit. All units of a kind therefore go out in one `systemctl` invocation: the
+first prompts, the rest reuse the retained authorisation. One dialog per enable,
+one per disable, and two minutes allowed to answer it.
 
 Check what your machine will do:
 

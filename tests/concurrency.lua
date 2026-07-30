@@ -32,6 +32,9 @@ local ACTIVE_UNITS = {
     "smartd.timer",
 }
 
+-- Units the scripted machine has since had stopped, filled in before the disable phase.
+local STOPPED = {}
+
 local function respond(command)
     if command == "powerprofilesctl get" then
         return { stdout = "balanced\n" }
@@ -46,6 +49,11 @@ local function respond(command)
     end
     for _, unit in ipairs(ACTIVE_UNITS) do
         if command == "systemctl is-active '" .. unit .. "'" then
+            -- STOPPED lets the same scripted machine answer "active" during enable and
+            -- "down" during disable, which is what the restore probes read.
+            if STOPPED[unit] then
+                return { stdout = "inactive\n", exitCode = 1 }
+            end
             return { stdout = "active\n", exitCode = 0 }
         end
     end
@@ -154,19 +162,32 @@ for _, command in ipairs(mock.commands) do
 end
 assert(suspends == #RUNNING_NAMES, "each running process got a freeze command, got " .. suspends)
 
--- ── privileged commands are serialised behind one prompt ──
+-- ── every system unit goes out in one invocation ──
 
--- Managing a system unit is challenged by polkit, which caches an administrator's answer
--- only once it has one. Firing several at a shell with nothing cached races that many
--- password dialogs onto the screen, so these must never overlap.
-local privileged = 0
+-- polkit retains an administrator's answer against the subject that gave it, and the
+-- subject systemd reports is the calling systemctl process. One process per unit is one
+-- subject per unit, so nothing is reused and the user answers a dialog per unit -- measured
+-- at seven prompts for seven units on a real machine. A single invocation prompts once.
+local privileged = {}
 for _, command in ipairs(mock.commands) do
     if isPrivileged(command) then
-        privileged = privileged + 1
+        privileged[#privileged + 1] = command
     end
 end
-assert(privileged == #ACTIVE_UNITS,
-    "every active system unit got a stop, got " .. privileged .. " of " .. #ACTIVE_UNITS)
+assert(#privileged == 1,
+    "all system units must go out in one invocation, got " .. #privileged .. ": "
+        .. table.concat(privileged, " | "))
+
+-- And that one invocation has to actually carry every unit, or the rest go unstopped.
+for _, unit in ipairs(ACTIVE_UNITS) do
+    assert(privileged[1]:find("'" .. unit .. "'", 1, true),
+        unit .. " missing from the batch: " .. privileged[1])
+end
+assert(privileged[1]:find("^systemctl stop "), "batched as a stop: " .. privileged[1])
+
+-- Inactive units stay out of it: a batch that names them would prompt for work with
+-- nothing to do.
+assert(not privileged[1]:find("jellyfin", 1, true), "inactive units excluded: " .. privileged[1])
 
 for index, round in ipairs(mock.rounds) do
     local concurrent = {}
@@ -192,5 +213,46 @@ for _, command in ipairs(mock.commands) do
             "unprivileged commands stay snappy, " .. command .. " got " .. tostring(timeout))
     end
 end
+
+-- ── disable batches too ──
+
+-- Turning gamer mode off restarts the same units, so it faces the same prompt-per-unit
+-- problem. It also has a probe phase in front of the starts, which must not leak a
+-- privileged command per target.
+for _, unit in ipairs(ACTIVE_UNITS) do
+    STOPPED[unit] = true
+end
+mock.commands = {}
+mock.rounds = {}
+
+svc.disable()
+rounds = 0
+while mock.drain() > 0 do
+    rounds = rounds + 1
+    assert(rounds < 500, "the disable queue never emptied")
+end
+
+local restarts = {}
+for _, command in ipairs(mock.commands) do
+    if isPrivileged(command) then
+        restarts[#restarts + 1] = command
+    end
+end
+assert(#restarts == 1,
+    "one invocation restarts every unit, got " .. #restarts .. ": " .. table.concat(restarts, " | "))
+assert(restarts[1]:find("^systemctl start "), "batched as a start: " .. restarts[1])
+for _, unit in ipairs(ACTIVE_UNITS) do
+    assert(restarts[1]:find("'" .. unit .. "'", 1, true), unit .. " not restarted: " .. restarts[1])
+end
+
+-- The frozen processes are thawed, and the session is gone.
+local thaws = 0
+for _, command in ipairs(mock.commands) do
+    if command:find("^pkill %-CONT %-x '") then
+        thaws = thaws + 1
+    end
+end
+assert(thaws == #RUNNING_NAMES, "each frozen process was thawed, got " .. thaws)
+assert(svc.readSnapshot() == nil, "the session is cleared once disable finishes")
 
 print("concurrency: passed")
