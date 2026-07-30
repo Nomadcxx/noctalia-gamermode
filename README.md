@@ -8,6 +8,10 @@ with one click, then restore what was running before.
 > Requires Noctalia v5 and plugin API 19. Noctalia v4 uses a different QML
 > plugin format and will not list or load this source.
 
+<img src="docs/images/panel.webp" width="380" alt="The panel with gamer mode running, showing nine suspended targets">
+
+The panel with gamer mode running.
+
 Metrics come from the shell's own system monitor, which reads NVIDIA cards
 through NVML in process. The plugin spawns nothing per poll, and AMD and Intel
 GPUs work wherever the shell reports them.
