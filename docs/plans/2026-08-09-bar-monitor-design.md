@@ -110,10 +110,12 @@ on    ▓  CPU 12%  45°   GPU 63%  71°   ↓548K ↑854K  ▓
          └── group ──┘  └─── group ───┘  └─ group ─┘
 ```
 
-The readout is one `ui.row`. A segment is `ui.row{ ui.glyph, ui.label }`, or just the label
-when `show_glyphs` is off, which is the requester's screenshot exactly. Groups are rows of
-segments with a tight gap; the root gap between groups is wider, which is what makes
-clusters read as clusters rather than as a run of numbers.
+The readout root is a `ui.column` carrying the pill; its first child is the row of groups,
+and the flame band of section 5 is appended below it when lit. A segment is
+`ui.row{ ui.glyph, ui.label }`, or just the label when `show_glyphs` is off, which is the
+requester's screenshot exactly. Groups are rows of segments with a tight gap; the row's gap
+between groups is wider, which is what makes clusters read as clusters rather than as a run
+of numbers.
 
 Glyph names are taken from the vocabulary the built-in sysmon and this plugin's own panel
 already use, so the widget looks native rather than bolted on: `cpu-usage`,
@@ -152,6 +154,7 @@ Per-instance `[[widget.setting]]` on the monitor entry, so two placements can di
 | `show_glyphs` | bool | true |
 | `highlight_gamer_mode` | bool | true |
 | `flame` | select `off` / `flare` / `always` | `flare` |
+| `flame_style` | select `graph` / `bars` | `graph` |
 
 `flame` carries `visible_when = { key = "highlight_gamer_mode", values = [true] }` so it
 disappears when there is no pill to animate. Defaults reproduce the requester's screenshot
@@ -184,16 +187,63 @@ as an aligned key/value table.
 The monitor's tooltip shows **what the bar does not**. Enabling `show_gpu` removes GPU from
 the tooltip. The tooltip complements the readout instead of repeating it, and always ends
 with a gamer-mode row carrying state and suspended count — the part of issue #1 that the
-built-in sysmon can never provide.
+built-in sysmon can never provide. Temperatures carry their unit in the tooltip (`45°C`)
+where the bar drops it for space (`45°`).
 
 The toggle's tooltip becomes rows of the same data, plus the gamer-mode row. The existing
 loading string still covers the pre-first-sample case.
 
-## 5. The flare
+## 5. The flame
 
-`highlight_gamer_mode` paints the row with `fill = "primary/0.15"`, theme-aware through the
-role rather than a hardcoded hex. **The row keeps its padding when gamer mode is off**, so
-switching it on paints a pill without moving a digit.
+`highlight_gamer_mode` paints the readout with `fill = "primary/0.15"`, theme-aware through
+the role rather than a hardcoded hex. **The readout keeps its padding when gamer mode is
+off**, so switching it on paints a pill without moving a digit.
+
+### The flame is a reading, not an ornament
+
+Intensity is derived from the published sample, never from a preference:
+
+```
+usage    = max(cpuPerc, gpuPerc)                     -- what a player feels
+tempHeat = clamp((max(cpuTemp, gpuTemp) - 50) / 40)  -- what the hardware feels
+heat     = clamp(usage * 0.7 + tempHeat * 0.3)
+```
+
+A floor of `0.12` keeps embers alive at idle so the pill still reads as lit. Usage leads
+because it is what a player notices; temperature still counts, so a hot card at moderate
+load earns a hot flame. The result is a bar that rages when the machine does — legible
+across the room without reading a number.
+
+This also settles the cost argument. An always-burning flame was hard to justify as
+decoration; as a load indicator it is the same class of thing as the numbers beside it.
+
+### Structure
+
+The readout root becomes a `ui.column`:
+
+```
+column  (pill: fill, radius, padding — all unconditional)
+├── row      the segment groups
+└── band     the flame, present only while burning
+```
+
+The band sits below the text because the tree has no z-order — nothing can be composited
+behind a label. `flame_style` picks how it is drawn:
+
+| Style | Built from | Nodes | Notes |
+|---|---|---|---|
+| `graph` | one `ui.graph`, two series | 1 | **Default.** Outer flame in `#ff6a00`, hotter inner one in `#ffd27a`. Scales to any readout width with no size arithmetic |
+| `bars` | 28 `ui.box` on a baseline | 28 | `align = "end"` with per-box `height` and `fill`. Crisper up close, 28× the node churn |
+
+Heights come from a 1-D heat field stepped once per frame: sparks injected at the base in
+proportion to `heat`, lateral bleed to neighbours, then decay. Roughly fifteen lines of
+Luau over a fixed-size table, no allocation per frame.
+
+The palette is fixed rather than role-derived — `#3d0f02 → #b02a04 → #ff6a00 → #ffb340 →
+#ffe9a3`. Fire is not a theme colour, and a theme whose primary is green should still get
+fire.
+
+### When it burns
 
 Animation rides the widget's own tick, which needs care because that tick is never off. A
 plugin bar widget ticks at 250 ms by default and dispatches a global `update()`; scripts
@@ -203,37 +253,42 @@ round-trip. So:
 - At load the monitor calls `setUpdateInterval(1000)`, cutting the idle tick from four a
   second to one. It cannot be disabled outright, and the monitor does not need it — the
   readout is driven by `state.watch`.
-- `update()` exists but returns immediately unless a flare is in progress.
+- `update()` exists but returns immediately unless a flare is in progress or
+  `flame = "always"` is driving the loop.
 - On a false→true transition of `game_mode.enabled` with `flame = "flare"`, the monitor
   calls `setUpdateInterval(33)`, animates for ~900 ms off `noctalia.nowMs()` deltas, then
   calls `setUpdateInterval(1000)` and goes quiet. Bar widgets get no frame tick;
   `setNeedsFrameTick` is panel-only.
 
-The flare itself is the fill ramping through amber into the settled tint, with a 4 px
-`ui.graph` band decaying from chaotic values to flat. The band is part of the animation, so
-it is absent entirely when `flame = "off"` rather than rendered flat.
+- `off` — no animation, no band, interval never raised. The plain tint.
+- `flare` — opens at `max(heat, 0.75)` whatever the load, ramps to nothing over ~900 ms,
+  settles to the resting tint. Default.
+- `always` — the band stays lit and tracks `heat` for as long as gamer mode is on.
 
-- `off` — settle immediately, no animation, no band, interval never raised.
-- `flare` — the transition animation above. Default.
-- `always` — hold the ~30 fps loop for as long as gamer mode is on.
+`always` is a loop, not an edge, so it is armed in two places beyond the transition
+watcher: at load and in `onConfigChanged`. Gamer mode may already be on when the widget
+loads, and changing the setting fires no transition.
 
-`always` is documented as the expensive setting and is never the default, because
-**updates are not gated on visibility**. The only deferral is during panel transitions
-(`bar.cpp:2384`); a fullscreen game covering the bar does not stop the timer. A permanently
-animating pill would burn CPU precisely while a game is running, in a plugin whose purpose
-is freeing CPU for that game. The flare spends its budget on the transition, where it buys
-something, and nothing at rest.
+`always` stays off by default because **updates are not gated on visibility**. The only
+deferral is during panel transitions (`bar.cpp:2384`); a fullscreen game covering the bar
+does not stop the timer. With `graph` that is one node re-walked per frame, which is a
+defensible price for a live load indicator — but it is still a price, and the user should
+opt into it.
+
+A vertical bar gets no band at all. It needs horizontal room, and a ~26 px column has
+none; the plain tint covers that case.
 
 ## 6. Absent data, first sample, vertical bars
 
 Three rules, two inherited from the existing plugin:
 
 1. **Absent metrics are omitted, never zeroed.** No GPU means no GPU group, not `GPU 0%`.
-2. **Before the first sample**, enabled segments render `—` at their final widths, so the
-   bar does not resize a second after login.
+2. **Before the first sample**, enabled segments render `—` at their final widths, dimmed
+   to `on_surface_variant` so the loading state reads as loading rather than as data, and
+   the bar does not resize a second after login.
 3. **On a vertical bar** (`barWidget.isVertical()`), segments stack one per row as glyph
-   over value at caption size, and group gaps collapse. Horizontal readouts are unusable in
-   a 26 px-wide bar.
+   over value, centred, with no width reservation — the horizontal fixed widths would clip
+   in a ~26 px bar. Group gaps collapse.
 
 ## 7. Testing
 
@@ -249,7 +304,12 @@ New `tests/monitor.lua`, the 18th suite. The mock gains a `barWidget.render` cap
 | Row padding identical on and off | The no-reflow promise |
 | `flame = "flare"` restores the idle interval when the flare ends | A stuck 30 fps loop is the expensive failure |
 | `flame = "off"` never raises the interval | Opt-out actually opts out |
+| `flame = "always"` is armed at load and on config change | No transition edge exists when gamer mode is already on |
+| `heat` rises with usage and with temperature, and is 0 before the first sample | The flame claims to report the machine; this is that claim |
+| A band is present only while burning, and never on a vertical bar | Rule 3, and the band needs horizontal room |
+| `flame_style` selects graph or bars without changing the segment rows | The fire must not disturb the readout |
 | Vertical layout stacks instead of running horizontally | Rule 3 |
+| Vertical labels carry no width reservation | A ~26 px bar cannot fit the horizontal reservations |
 | Unknown or missing state renders without erroring | The widget must never take the bar down |
 
 `tests/widget.lua` is updated for tooltip rows. `./run-tests.sh` stays the entry point.
@@ -311,3 +371,8 @@ The plugin merged on 2026-07-31, so this is an update, not a submission.
   each would need service work.
 - **Gradient fills.** The renderer has `FillMode::LinearGradient`, but the reconciler only
   ever sets a solid colour from `parseColor`. Not reachable from a plugin.
+- **Heat behind the digits.** A `ui.row` paints its fill behind its own children, so warm
+  fills on the group rows would put heat behind the readings — the closest a tree with no
+  z-order can get to fire under text. Prototyped as a third `flame_style` called `burn` and
+  dropped: it adds a fill mutation per group on top of the 28 boxes, for an effect that is
+  coarse at one cell per group.

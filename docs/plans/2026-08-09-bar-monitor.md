@@ -491,7 +491,7 @@ for _, segment in ipairs(without) do
     assert(segment.id ~= "gpu" and segment.id ~= "gpu_temp" and segment.id ~= "vram",
         "no GPU segment on a machine without one, got " .. segment.id)
 end
-assert(#without == 6, "cpu, cpu_temp, ram, swap, load and two net minus none, got " .. #without)
+assert(#without == 7, "cpu, cpu_temp, ram, swap, load and two net, got " .. #without)
 
 -- Swap that exists is shown; swap turned off is not a bar at 0%.
 local noSwap = helpers.copy(FULL)
@@ -509,6 +509,7 @@ assert(#pending == 7, "every enabled segment is present while loading, got " .. 
 for _, segment in ipairs(pending) do
     assert(segment.text == "—", "placeholder text, got " .. segment.text)
     assert(type(segment.width) == "number" and segment.width > 0, "placeholder keeps its final width")
+    assert(segment.placeholder == true, "placeholders are marked so the renderer can dim them")
 end
 ```
 
@@ -545,6 +546,9 @@ function M.formatSegments(m, config)
                     glyph = segment.glyph,
                     width = segment.width,
                     text = text,
+                    -- Marked so the renderer can dim them: a dash in the value colour
+                    -- reads as data.
+                    placeholder = loading,
                 }
             end
         end
@@ -618,8 +622,13 @@ end
 local defaults = monitor.readConfig()
 local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaults)
 
-assert(tree.kind == "row", "the readout is a row, got " .. tostring(tree.kind))
-assert(#tree.children == 3, "cpu, gpu and net form three groups, got " .. #tree.children)
+-- The root is a column so the flame band of Task 5 has somewhere to go. Its first child
+-- is the row of groups; nothing else is in it until something is burning.
+assert(tree.kind == "column", "the readout root is a column, got " .. tostring(tree.kind))
+assert(#tree.children == 1, "only the segment row until a flame is lit, got " .. #tree.children)
+local segmentRow = tree.children[1]
+assert(segmentRow.kind == "row", "the segments live in a row, got " .. tostring(segmentRow.kind))
+assert(#segmentRow.children == 4, "cpu, mem, gpu and net form four groups, got " .. #segmentRow.children)
 
 for _, spec in ipairs(labelsOf(tree)) do
     assert(type(spec.width) == "number" and spec.width > 0,
@@ -644,12 +653,16 @@ assert(#labelsOf(monitor.buildTree(FULL, { enabled = false }, bare)) == 7,
 local stacked = monitor.buildTree(FULL, { enabled = false }, defaults, true)
 assert(stacked.kind == "column", "a vertical bar stacks, got " .. tostring(stacked.kind))
 assert(#stacked.children == 7, "one row per segment when stacked, got " .. #stacked.children)
+for _, spec in ipairs(labelsOf(stacked)) do
+    assert(spec.width == nil, "no width reservation vertically: a ~26px bar cannot fit one")
+    assert(spec.textAlign == "center", "stacked values are centred")
+end
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
 
 Run: `lua tests/monitor.lua`
-Expected: FAIL — `cpu, gpu and net form three groups, got 7`. Task 1's tree is flat.
+Expected: FAIL — `cpu, mem, gpu and net form four groups, got 7`. Task 1's tree is flat.
 
 - [ ] **Step 3: Implement grouping, the glyph toggle, and the vertical layout**
 
@@ -665,7 +678,9 @@ local function segmentNode(segment, showGlyphs)
         text = segment.text,
         width = segment.width,
         textAlign = "right",
-        color = "on_surface",
+        -- A placeholder in the value colour reads as data; dim it so the loading state
+        -- reads as loading.
+        color = segment.placeholder and "on_surface_variant" or "on_surface",
     })
     return ui.row({ align = "center", gap = 3 }, children)
 end
@@ -676,9 +691,20 @@ function M.buildTree(m, gm, config, vertical)
     local segments = M.formatSegments(m, config)
 
     if vertical then
+        -- A vertical bar is ~26px wide, so the horizontal width reservations would clip.
+        -- Segments stack glyph over value, centred, with no reserved width.
         local rows = {}
         for _, segment in ipairs(segments) do
-            rows[#rows + 1] = segmentNode(segment, config.show_glyphs)
+            local cell = {}
+            if config.show_glyphs then
+                cell[#cell + 1] = ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" })
+            end
+            cell[#cell + 1] = ui.label({
+                text = segment.text,
+                textAlign = "center",
+                color = segment.placeholder and "on_surface_variant" or "on_surface",
+            })
+            rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
         end
         return ui.column({ align = "center", gap = 2 }, rows)
     end
@@ -700,7 +726,11 @@ function M.buildTree(m, gm, config, vertical)
         children[#children + 1] = ui.row({ align = "center", gap = 6 }, group)
     end
 
-    return ui.row({ align = "center", gap = 12, paddingH = 6 }, children)
+    -- A column, not a row: Task 5 appends the flame band underneath these groups, and
+    -- the pill's fill and padding belong to the container that holds both.
+    return ui.column({ align = "center", gap = 1, paddingH = 6, paddingV = 3 }, {
+        ui.row({ align = "center", gap = 12 }, children),
+    })
 end
 ```
 
@@ -815,13 +845,15 @@ Add to the table returned by `M.readConfig`:
 Replace the final `return` of `M.buildTree` with:
 
 ```lua
-    local props = { align = "center", gap = 12, paddingH = 6, radius = 8 }
+    local props = { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
     -- The padding above is unconditional. Painting the fill must not change the layout,
     -- or every digit in the bar shifts the moment gamer mode is toggled.
     if config.highlight_gamer_mode and gm and gm.enabled then
         props.fill = PILL_FILL
     end
-    return ui.row(props, children)
+    return ui.column(props, {
+        ui.row({ align = "center", gap = 12 }, children),
+    })
 ```
 
 - [ ] **Step 4: Run the tests and make sure they pass**
@@ -841,11 +873,11 @@ git commit -m "feat: tint the readout while gamer mode is on"
 
 ---
 
-### Task 5: The transition flare
+### Task 5: The flame
 
 **Files:**
 - Modify: `gamer-mode/monitor.luau`
-- Modify: `gamer-mode/plugin.toml` (`flame`)
+- Modify: `gamer-mode/plugin.toml` (`flame`, `flame_style`)
 - Modify: `gamer-mode/translations/en.json`
 - Modify: `tests/monitor.lua`
 
@@ -853,23 +885,93 @@ git commit -m "feat: tint the readout while gamer mode is on"
 - Consumes: `M.buildTree(metrics, gameMode, config, vertical)` from Task 4.
 - Produces:
   - `config.flame` string, one of `off`, `flare`, `always`, default `flare`.
-  - `M.buildTree(metrics, gameMode, config, vertical, phase)`. `phase` is a number in `0..1` or nil. Nil means no animation.
+  - `config.flame_style` string, one of `graph`, `bars`, default `graph`.
+  - `M.heatOf(metrics) -> number` in `0..1`.
+  - `M.stepFlame(field, heat, dtMs)` mutating a fixed-size array of column heats.
+  - `M.flameBand(field, style) -> uiNode`.
+  - `M.buildTree(metrics, gameMode, config, vertical, burning)`. `burning` is a number in
+    `0..1` or nil. Nil means no flame; the band is absent, not flat.
   - Global `update()`, called by the shell on its timer.
 
-**Background the implementer needs:** every plugin bar widget ticks on a timer and dispatches a global `update()`. The default interval is 250ms. `noctalia.setUpdateInterval(ms)` changes it, with a 16ms floor. There is **no visibility gating** — a fullscreen game covering the bar does not stop the timer, which is why the animation is bounded rather than continuous.
+**Background the implementer needs:** every plugin bar widget ticks on a timer and
+dispatches a global `update()`. The default interval is 250 ms; `noctalia.setUpdateInterval(ms)`
+changes it, with a 16 ms floor. There is **no visibility gating** — a fullscreen game
+covering the bar does not stop the timer. `align = "end"` is a valid flex token, which is
+what lets boxes sit on a baseline and grow upward. `ui.graph` accepts two series
+(`values`, `values2`) with two colours and a `fillOpacity`.
+
+Note the tests run under plain `lua`, not Luau, so `table.clone` and `table.create` are
+unavailable. The implementation uses a module-level scratch table instead.
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/monitor.lua`:
 
 ```lua
--- ── the flare ──
+-- ── heat: the flame reports the machine ──
 
--- Idle cost first: the readout is driven by state.watch, so the tick is slowed from the
--- 250ms default rather than left running four times a second for nothing.
+assert(monitor.heatOf({ available = false }) == 0, "no heat before the first sample")
+
+local idle = { available = true, cpuPerc = 0.02, gpuAvailable = true, gpuPerc = 0.03, cpuTemp = 36, gpuTemp = 34 }
+local pegged = { available = true, cpuPerc = 0.97, gpuAvailable = true, gpuPerc = 0.99, cpuTemp = 88, gpuTemp = 84 }
+assert(monitor.heatOf(idle) < 0.1, "an idle machine barely burns, got " .. monitor.heatOf(idle))
+assert(monitor.heatOf(pegged) > 0.9, "a pegged machine rages, got " .. monitor.heatOf(pegged))
+
+-- Usage leads, but a hot card at moderate load still earns a hotter flame.
+local warm = { available = true, cpuPerc = 0.4, gpuAvailable = true, gpuPerc = 0.4, cpuTemp = 82, gpuTemp = 80 }
+local cool = { available = true, cpuPerc = 0.4, gpuAvailable = true, gpuPerc = 0.4, cpuTemp = 42, gpuTemp = 40 }
+assert(monitor.heatOf(warm) > monitor.heatOf(cool), "temperature raises the heat at equal usage")
+
+-- ── the heat field ──
+
+local field = {}
+for i = 1, 28 do field[i] = 0 end
+for _ = 1, 40 do monitor.stepFlame(field, 0.9, 33) end
+local total, peak = 0, 0
+for i = 1, 28 do
+    total = total + field[i]
+    peak = math.max(peak, field[i])
+    assert(field[i] >= 0 and field[i] <= 1, "every column stays in range, got " .. field[i])
+end
+assert(total > 0, "a hot field has heat in it")
+assert(peak > 0.4, "sparks reach the top, peak was " .. peak)
+
+-- It has to die down too, or "off" would never look off.
+for _ = 1, 400 do monitor.stepFlame(field, 0, 33) end
+local cold = 0
+for i = 1, 28 do cold = cold + field[i] end
+assert(cold < 0.5, "the field decays to nothing without sparks, got " .. cold)
+
+-- ── the band ──
+
+local defaultsFlame = monitor.readConfig()
+assert(defaultsFlame.flame == "flare", "flare by default")
+assert(defaultsFlame.flame_style == "graph", "graph by default")
+
+local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
+assert(#litTree.children == 2, "the band joins the segment row, got " .. #litTree.children)
+assert(litTree.children[2].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+
+local barsConfig = helpers.copy(defaultsFlame)
+barsConfig.flame_style = "bars"
+local barsTree = monitor.buildTree(FULL, on, barsConfig, false, 0.8)
+assert(barsTree.children[2].kind == "row", "bars style renders a row of boxes")
+assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.children[2].children)
+
+-- No band when nothing is burning: absent, not flat.
+assert(#monitor.buildTree(FULL, on, defaultsFlame, false, nil).children == 1, "no band when not burning")
+assert(#monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children == 1, "no band when gamer mode is off")
+
+-- A vertical bar has no horizontal room for it.
+assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
+    "a vertical readout stacks segments and grows no band")
+
+-- ── intervals ──
+
 assert(mock.updateIntervalMs == 1000, "idle tick slowed on load, got " .. tostring(mock.updateIntervalMs))
 
 mock.config.flame = "flare"
+mock.config.flame_style = "graph"
 mock.state.set("game_mode", { enabled = false, suspended = {} })
 mock.updateIntervalMs = nil
 
@@ -887,10 +989,9 @@ end
 assert(mock.updateIntervalMs == 1000, "flare restores the idle tick when it finishes")
 assert(guard < 200, "the flare terminates rather than spinning")
 
--- Turning gamer mode off must not start one.
 mock.updateIntervalMs = nil
 mock.state.set("game_mode", { enabled = false, suspended = {} })
-assert(mock.updateIntervalMs == nil, "no flare when gamer mode goes off")
+assert(mock.updateIntervalMs == 1000, "no flare when gamer mode goes off, got " .. tostring(mock.updateIntervalMs))
 
 -- ── flame = off ──
 
@@ -898,25 +999,38 @@ mock.config.flame = "off"
 mock.updateIntervalMs = nil
 mock.state.set("game_mode", { enabled = true, suspended = {} })
 assert(mock.updateIntervalMs == nil, "flame=off never raises the tick")
-assert(monitor.buildTree(FULL, { enabled = true }, monitor.readConfig()).spec.fill == "primary/0.15",
-    "flame=off still tints, it just does not animate")
 
--- ── the animated fill ──
+local offConfig = monitor.readConfig()
+assert(offConfig.flame == "off", "the setting is read")
+assert(monitor.buildTree(FULL, on, offConfig, false, nil).spec.fill == "primary/0.15",
+    "flame=off still tints, it just does not burn")
 
-local flareConfig = monitor.readConfig()
-flareConfig.flame = "flare"
-local early = monitor.buildTree(FULL, { enabled = true }, flareConfig, false, 0.0)
-local late = monitor.buildTree(FULL, { enabled = true }, flareConfig, false, 1.0)
-assert(early.spec.fill ~= late.spec.fill, "the fill changes across the flare")
-assert(late.spec.fill == "primary/0.15", "the flare settles on the resting tint")
+-- ── flame = always ──
+
+mock.config.flame = "always"
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+mock.updateIntervalMs = nil
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(mock.updateIntervalMs == 33, "always raises the tick on the off-to-on edge, got " .. tostring(mock.updateIntervalMs))
+
+-- `always` is a loop, not an edge: no transition fires when the user switches the setting
+-- while gamer mode is already on, so onConfigChanged must arm it.
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 33, "onConfigChanged arms the loop when gamer mode is already on")
+
+rendered = nil
+mock.clock = mock.clock + 40
+update()
+assert(rendered ~= nil, "update re-renders while the loop runs")
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
 
 Run: `lua tests/monitor.lua`
-Expected: FAIL — `idle tick slowed on load, got nil`.
+Expected: FAIL — `attempt to call a nil value (field 'heatOf')`.
 
-- [ ] **Step 3: Declare the setting**
+- [ ] **Step 3: Declare the settings**
 
 Append to the monitor's settings in `gamer-mode/plugin.toml`:
 
@@ -933,25 +1047,38 @@ options = [
   { value = "flare", label_key = "settings.monitor.flame.options.flare" },
   { value = "always", label_key = "settings.monitor.flame.options.always" },
 ]
+
+[[widget.setting]]
+key = "flame_style"
+type = "select"
+label_key = "settings.monitor.flame_style.label"
+description_key = "settings.monitor.flame_style.description"
+default = "graph"
+visible_when = { key = "highlight_gamer_mode", values = [true] }
+options = [
+  { value = "graph", label_key = "settings.monitor.flame_style.options.graph" },
+  { value = "bars", label_key = "settings.monitor.flame_style.options.bars" },
+]
 ```
 
 Add to the `settings.monitor` object in `gamer-mode/translations/en.json`:
 
 ```json
 "flame": {
-  "label": "Ember effect",
-  "description": "Animates the highlight. \"Always\" keeps a 30fps animation running the whole time gamer mode is on, which costs CPU while you are playing.",
-  "options": {
-    "off": "Off",
-    "flare": "Flare on switch",
-    "always": "Always"
-  }
+  "label": "Flame",
+  "description": "Burns while gamer mode is on, as hot as the machine is working. \"Always\" keeps it animating the whole session, which costs CPU while you play.",
+  "options": { "off": "Off", "flare": "Flare on switch", "always": "Always" }
+},
+"flame_style": {
+  "label": "Flame style",
+  "description": "How the flame is drawn. \"Graph\" is one node and the cheapest; \"bars\" is crisper up close and costs 28.",
+  "options": { "graph": "Graph", "bars": "Bars" }
 }
 ```
 
-- [ ] **Step 4: Implement the flare**
+- [ ] **Step 4: Implement heat and the field**
 
-In `gamer-mode/monitor.luau`, add beside the other constants:
+Add to `gamer-mode/monitor.luau` beside the other constants:
 
 ```lua
 -- The readout is driven by state.watch, so the tick only exists for animation. It cannot
@@ -960,60 +1087,191 @@ local IDLE_INTERVAL_MS = 1000
 local FLARE_INTERVAL_MS = 33
 local FLARE_DURATION_MS = 900
 
--- Amber into the resting tint. Alpha rides a role rather than a hex value so the tint
--- follows the theme; the ramp uses fixed colours because a flame is not a theme colour.
-local FLARE_FILLS = { "#ffb340cc", "#ff8c1acc", "#ff6a0099", "primary/0.15" }
+local FLAME_COLUMNS = 28
+local FLAME_HEIGHT = 6
+-- Embers stay alive at idle so the pill still reads as lit.
+local HEAT_FLOOR = 0.12
+
+-- Fixed, not role-derived. Fire is not a theme colour, and a theme whose primary is green
+-- should still get fire.
+local FLAME_STOPS = {
+    { 0.00, 61, 15, 2 },
+    { 0.28, 176, 42, 4 },
+    { 0.58, 255, 106, 0 },
+    { 0.82, 255, 179, 64 },
+    { 1.00, 255, 233, 163 },
+}
 ```
 
-Add the flare state beside `nonceCounter`:
+Add the heat function after `M.formatSegments`:
 
 ```lua
-local flareStartedMs = nil
-local wasEnabled = gameMode.enabled == true
+-- How hard the machine is working, 0..1 -- the thing the flame reports. Usage leads,
+-- because that is what a player feels; temperature follows, so a hot card at moderate
+-- load still earns a hot flame.
+function M.heatOf(m)
+    if not (m and m.available) then
+        return 0
+    end
+    local gpuUsage = 0
+    if m.gpuAvailable and tonumber(m.gpuPerc) then
+        gpuUsage = tonumber(m.gpuPerc)
+    end
+    local usage = math.max(tonumber(m.cpuPerc) or 0, gpuUsage)
+    local hottest = math.max(tonumber(m.cpuTemp) or 0, tonumber(m.gpuTemp) or 0)
+    local tempHeat = 0
+    if hottest > 0 then
+        tempHeat = math.max(0, math.min(1, (hottest - 50) / 40))
+    end
+    return math.max(0, math.min(1, usage * 0.7 + tempHeat * 0.3))
+end
 ```
+
+Add the field simulation below it:
+
+```lua
+-- Scratch buffer for one step, reused so a 30fps loop allocates nothing.
+local flameScratch = {}
+for i = 1, FLAME_COLUMNS do
+    flameScratch[i] = 0
+end
+
+-- One step of a 1-D fire: bleed into the neighbours, decay, then inject sparks in
+-- proportion to how hard the machine is working.
+function M.stepFlame(field, heat, dtMs)
+    local decay = math.min(1, (dtMs or 33) * 0.0042)
+    for i = 1, FLAME_COLUMNS do
+        flameScratch[i] = field[i] or 0
+    end
+    for i = 1, FLAME_COLUMNS do
+        local left = flameScratch[i == 1 and FLAME_COLUMNS or i - 1]
+        local right = flameScratch[i == FLAME_COLUMNS and 1 or i + 1]
+        local blended = flameScratch[i] * 0.62 + (left + right) * 0.19
+        field[i] = math.max(0, blended - decay * (0.5 + math.random() * 0.7))
+    end
+    if heat <= 0 then
+        return
+    end
+    local sparks = math.max(1, math.floor(FLAME_COLUMNS * 0.22 * heat + 0.5))
+    for _ = 1, sparks do
+        local index = math.random(1, FLAME_COLUMNS)
+        field[index] = math.min(1, field[index] + 0.55 + math.random() * 0.45 * heat)
+    end
+end
+
+local function heatColor(value)
+    local t = math.max(0, math.min(1, value))
+    for i = 2, #FLAME_STOPS do
+        local stop = FLAME_STOPS[i]
+        if t <= stop[1] then
+            local previous = FLAME_STOPS[i - 1]
+            local k = (t - previous[1]) / (stop[1] - previous[1])
+            return string.format(
+                "#%02x%02x%02x",
+                math.floor(previous[2] + (stop[2] - previous[2]) * k),
+                math.floor(previous[3] + (stop[3] - previous[3]) * k),
+                math.floor(previous[4] + (stop[4] - previous[4]) * k)
+            )
+        end
+    end
+    return "#ffe9a3"
+end
+
+-- graph is one node whatever the width. bars draws a box per column, which looks crisper
+-- close up and costs 28 times as much to reconcile.
+function M.flameBand(field, style)
+    if style ~= "bars" then
+        local outer, inner = {}, {}
+        for i = 1, FLAME_COLUMNS do
+            outer[i] = field[i]
+            inner[i] = field[i] * 0.55
+        end
+        return ui.graph({
+            values = outer,
+            values2 = inner,
+            color = "#ff6a00",
+            color2 = "#ffd27a",
+            fillOpacity = 0.9,
+            height = FLAME_HEIGHT,
+            flexGrow = 1,
+        })
+    end
+
+    local bars = {}
+    for i = 1, FLAME_COLUMNS do
+        bars[i] = ui.box({
+            flexGrow = 1,
+            height = math.max(1, field[i] * FLAME_HEIGHT),
+            fill = heatColor(field[i]),
+            radius = 1,
+        })
+    end
+    -- align = "end" puts them on a baseline so they grow upward.
+    return ui.row({ align = "end", gap = 1, height = FLAME_HEIGHT }, bars)
+end
+```
+
+- [ ] **Step 5: Hang the band off the tree**
 
 Add to the table returned by `M.readConfig`:
 
 ```lua
         flame = noctalia.getConfig("flame") or "flare",
+        flame_style = noctalia.getConfig("flame_style") or "graph",
 ```
 
-Add the fill helper above `M.buildTree`:
+Add the flame field beside `nonceCounter`:
 
 ```lua
--- phase runs 0..1 across the flare. Nil means no animation, which is both the resting
--- state and every frame under flame = "off".
-local function fillFor(config, gm, phase)
-    if not (config.highlight_gamer_mode and gm and gm.enabled) then
+local flameField = {}
+for i = 1, FLAME_COLUMNS do
+    flameField[i] = 0
+end
+local flareStartedMs = nil
+local wasEnabled = gameMode.enabled == true
+```
+
+Change `M.buildTree` to take `burning` and append the band. Its signature becomes:
+
+```lua
+function M.buildTree(m, gm, config, vertical, burning)
+```
+
+and the horizontal return becomes:
+
+```lua
+    local props = { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
+    local lit = config.highlight_gamer_mode and gm and gm.enabled
+    if lit then
+        props.fill = PILL_FILL
+    end
+
+    local stack = { ui.row({ align = "center", gap = 12 }, children) }
+    -- Absent, not flat: a band drawn at zero height is still a node to reconcile, and it
+    -- reads as a dead strip under the numbers.
+    if lit and burning ~= nil then
+        stack[#stack + 1] = M.flameBand(flameField, config.flame_style)
+    end
+    return ui.column(props, stack)
+```
+
+The vertical branch is unchanged and grows no band.
+
+- [ ] **Step 6: Drive it from the tick**
+
+Replace `render`, the `game_mode` watcher and `onConfigChanged`, and add `update`:
+
+```lua
+local function burningLevel(config)
+    if config.flame == "off" then
         return nil
     end
-    if phase == nil or config.flame == "off" then
-        return PILL_FILL
+    if not (config.highlight_gamer_mode and gameMode.enabled) then
+        return nil
     end
-    local index = math.floor(phase * (#FLARE_FILLS - 1)) + 1
-    return FLARE_FILLS[math.max(1, math.min(#FLARE_FILLS, index))]
-end
-```
-
-Change `M.buildTree` to take `phase` and use the helper:
-
-```lua
-function M.buildTree(m, gm, config, vertical, phase)
-```
-
-and replace the fill branch at its end with:
-
-```lua
-    props.fill = fillFor(config, gm, phase)
-```
-
-Replace `render` and the `game_mode` watcher, and add the `update` global:
-
-```lua
-local function currentPhase(config)
-    if config.flame == "always" and gameMode.enabled then
-        -- A free-running ramp rather than a one-shot, so it never settles.
-        return (noctalia.nowMs() % FLARE_DURATION_MS) / FLARE_DURATION_MS
+    local heat = HEAT_FLOOR + M.heatOf(metrics) * (1 - HEAT_FLOOR)
+    if config.flame == "always" then
+        return heat
     end
     if flareStartedMs == nil then
         return nil
@@ -1022,19 +1280,25 @@ local function currentPhase(config)
     if elapsed >= FLARE_DURATION_MS then
         return nil
     end
-    return elapsed / FLARE_DURATION_MS
+    -- The flare opens hot whatever the load, then settles to the resting tint.
+    return math.max(heat, 0.75) * (1 - elapsed / FLARE_DURATION_MS)
 end
 
 local function render()
     local config = M.readConfig()
-    barWidget.render(M.buildTree(metrics, gameMode, config, barWidget.isVertical(), currentPhase(config)))
+    local burning = burningLevel(config)
+    if burning ~= nil then
+        M.stepFlame(flameField, burning, FLARE_INTERVAL_MS)
+    end
+    barWidget.render(M.buildTree(metrics, gameMode, config, barWidget.isVertical(), burning))
+    barWidget.setTooltip(M.tooltipRows(metrics, gameMode, config))
 end
 
--- Called by the shell on its timer. It does nothing at all unless an animation is
--- running, which is what keeps the idle cost to one no-op call a second.
+-- Called by the shell on its timer. It does nothing at all unless something is burning,
+-- which is what keeps the idle cost to one no-op call a second.
 function update()
     local config = M.readConfig()
-    if config.flame == "always" and gameMode.enabled then
+    if config.flame == "always" and gameMode.enabled and config.highlight_gamer_mode then
         render()
         return
     end
@@ -1047,9 +1311,19 @@ function update()
     end
     render()
 end
+
+function onConfigChanged()
+    local config = M.readConfig()
+    if config.flame == "always" and gameMode.enabled and config.highlight_gamer_mode then
+        noctalia.setUpdateInterval(FLARE_INTERVAL_MS)
+    elseif flareStartedMs == nil then
+        noctalia.setUpdateInterval(IDLE_INTERVAL_MS)
+    end
+    render()
+end
 ```
 
-Replace the `game_mode` watcher with one that starts the flare on the off-to-on edge only:
+Replace the `game_mode` watcher so the flare starts on the off-to-on edge only:
 
 ```lua
 noctalia.state.watch("game_mode", function(value)
@@ -1074,14 +1348,20 @@ noctalia.state.watch("game_mode", function(value)
 end)
 ```
 
-Finally, set the idle interval at load. Replace the bare `render()` at the bottom of the file with:
+Finally, replace the bare `render()` at the bottom of the file with:
 
 ```lua
 noctalia.setUpdateInterval(IDLE_INTERVAL_MS)
+-- `always` is a free-running loop, not an edge: gamer mode may already be on when the
+-- widget loads, and no transition will fire to start it.
+local bootConfig = M.readConfig()
+if bootConfig.flame == "always" and gameMode.enabled and bootConfig.highlight_gamer_mode then
+    noctalia.setUpdateInterval(FLARE_INTERVAL_MS)
+end
 render()
 ```
 
-- [ ] **Step 5: Run the tests and make sure they pass**
+- [ ] **Step 7: Run the tests and make sure they pass**
 
 Run: `lua tests/monitor.lua`
 Expected: `monitor: passed`
@@ -1089,11 +1369,11 @@ Expected: `monitor: passed`
 Run: `./run-tests.sh`
 Expected: `all tests passed`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add gamer-mode/monitor.luau gamer-mode/plugin.toml gamer-mode/translations/en.json tests/monitor.lua
-git commit -m "feat: ember flare when gamer mode switches on"
+git commit -m "feat: a flame that burns as hot as the machine is working"
 ```
 
 ---
@@ -1141,6 +1421,15 @@ for _, row in ipairs(rows2) do
     seen2[row.key] = row.value
 end
 assert(seen2["widget.gpu"] ~= nil, "turning a segment off moves it into the tooltip")
+
+-- Units the bar drops for space come back in the tooltip.
+local noTemp = helpers.copy(defaults)
+noTemp.show_cpu_temp = false
+local seenT = {}
+for _, row in ipairs(monitor.tooltipRows(FULL, off, noTemp)) do
+    seenT[row.key] = row.value
+end
+assert(seenT["widget.cpu_temp"] == "45°C", "tooltip temperatures carry the unit, got " .. tostring(seenT["widget.cpu_temp"]))
 
 -- Gamer mode is the thing the built-in sysmon widget can never report.
 assert(rows[#rows].key == "widget.gamer_mode", "the last row is gamer-mode state")
@@ -1206,7 +1495,15 @@ Keep the existing `widget.tooltip_loading` key. Do not remove it.
 
 - [ ] **Step 4: Implement the monitor tooltip**
 
-Add to `gamer-mode/monitor.luau`, after `M.formatSegments`:
+First, give the two temperature entries in `SEGMENTS` a `tip` function — the bar drops the unit for space, the tooltip has room for it:
+
+```lua
+        tip = function(m) return m.cpuTemp and string.format("%d°C", math.floor(m.cpuTemp + 0.5)) or nil end,
+```
+
+(and the same for `gpu_temp` with `m.gpuTemp`).
+
+Then add to `gamer-mode/monitor.luau`, after `M.formatSegments`:
 
 ```lua
 -- The bar and the tooltip are complements: a segment the user put on the bar is left out
@@ -1217,7 +1514,7 @@ function M.tooltipRows(m, gm, config)
     if m.available then
         for _, segment in ipairs(SEGMENTS) do
             if not config[segment.setting] then
-                local text = segment.value(m)
+                local text = (segment.tip or segment.value)(m)
                 if text then
                     rows[#rows + 1] = { key = noctalia.tr("widget." .. segment.id), value = text }
                 end
@@ -1627,7 +1924,7 @@ Expected: `validate` passes. Do not mark the PR ready for review without the rep
 | 3. Settings, per-instance | 1, 4, 5 |
 | 3. Custom icons, `icon_file_active` | 7 |
 | 4. Tooltip rows, complement rule | 6 |
-| 5. Flare, intervals, `flame` options | 5 |
+| 5. Flare, intervals, `flame` options, `always` armed at load and on config change | 5 |
 | 6. Absent metrics, placeholders, vertical bars | 2, 3 |
 | 7. Testing | every task; the assertion table in the spec maps onto Tasks 1-5 |
 | 8. Documentation, translations, screenshots | 8 |
