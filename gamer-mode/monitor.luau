@@ -9,6 +9,7 @@
 
 local PANEL_ID = "nomadcxx/gamer-mode:main"
 local MIB_PER_GIB = 1024
+local PLACEHOLDER = "—"
 
 local M = {}
 
@@ -120,10 +121,14 @@ end
 
 function M.formatSegments(m, config)
     m = m or {}
+    local loading = not m.available
     local out = {}
     for _, segment in ipairs(SEGMENTS) do
         if config[segment.setting] then
-            local text = segment.value(m)
+            -- Before the first sample there is nothing to ask the machine about, so every
+            -- enabled segment reserves its width with a placeholder. Once a sample lands,
+            -- a nil value means the hardware is genuinely absent and the segment goes.
+            local text = loading and PLACEHOLDER or segment.value(m)
             if text then
                 out[#out + 1] = {
                     id = segment.id,
@@ -131,6 +136,9 @@ function M.formatSegments(m, config)
                     glyph = segment.glyph,
                     width = segment.width,
                     text = text,
+                    -- Marked so the renderer can dim them: a dash in the value colour
+                    -- reads as data.
+                    placeholder = loading,
                 }
             end
         end

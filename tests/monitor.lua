@@ -88,4 +88,45 @@ rendered = nil
 mock.state.set("game_mode", { enabled = true, suspended = {} })
 assert(rendered ~= nil, "a gamer-mode change re-renders")
 
+-- ── a machine with no GPU ──
+
+-- Omitted entirely rather than zeroed: "GPU 0%" reads like an idle GPU, which is a
+-- different and false claim.
+local noGpu = helpers.copy(FULL)
+noGpu.gpuAvailable = false
+noGpu.gpuPerc = nil
+noGpu.gpuTemp = nil
+noGpu.vramUsedMb = nil
+
+local allOn = monitor.readConfig()
+allOn.show_swap = true
+allOn.show_vram = true
+allOn.show_load = true
+
+local without = monitor.formatSegments(noGpu, allOn)
+for _, segment in ipairs(without) do
+    assert(segment.id ~= "gpu" and segment.id ~= "gpu_temp" and segment.id ~= "vram",
+        "no GPU segment on a machine without one, got " .. segment.id)
+end
+assert(#without == 7, "cpu, cpu_temp, ram, swap, load and two net, got " .. #without)
+
+-- Swap that exists is shown; swap turned off is not a bar at 0%.
+local noSwap = helpers.copy(FULL)
+noSwap.swapTotalMb = 0
+for _, segment in ipairs(monitor.formatSegments(noSwap, allOn)) do
+    assert(segment.id ~= "swap", "no swap segment when the machine has no swap")
+end
+
+-- ── before the first sample ──
+
+-- Placeholders keep every enabled segment at its final width, so the bar does not
+-- resize a second after login.
+local pending = monitor.formatSegments({ available = false }, monitor.readConfig())
+assert(#pending == 7, "every enabled segment is present while loading, got " .. #pending)
+for _, segment in ipairs(pending) do
+    assert(segment.text == "—", "placeholder text, got " .. segment.text)
+    assert(type(segment.width) == "number" and segment.width > 0, "placeholder keeps its final width")
+    assert(segment.placeholder == true, "placeholders are marked so the renderer can dim them")
+end
+
 print("monitor: passed")
