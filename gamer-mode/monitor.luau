@@ -26,6 +26,10 @@ local FLARE_DURATION_MS = 900
 
 local FLAME_COLUMNS = 28
 local FLAME_HEIGHT = 6
+-- The bar host stretches a content-sized child to the full bar height, which makes the
+-- capsule swallow the bar. An explicit height keeps it inset the way Noctalia's own
+-- capsules are; the reconciler scales it with the bar's content scale.
+local PILL_HEIGHT = 28
 -- Embers stay alive at idle so the pill still reads as lit.
 local HEAT_FLOOR = 0.12
 
@@ -355,7 +359,7 @@ end
 local function pillProps(config, gm, vertical, burning)
     local props = vertical
             and { align = "center", gap = 2, paddingH = 3, paddingV = 4, radius = PILL_RADIUS }
-            or { align = "stretch", gap = 0, paddingH = 8, paddingV = 1, radius = PILL_RADIUS }
+            or { align = "stretch", gap = 0, paddingH = 8, paddingV = 1, height = PILL_HEIGHT, radius = PILL_RADIUS }
     if config.highlight_gamer_mode and gm and gm.enabled then
         props.fill = pillFill(burning)
     end
