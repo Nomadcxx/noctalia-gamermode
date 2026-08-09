@@ -198,6 +198,38 @@ for _, spec in ipairs(labelsOf(stacked)) do
     assert(spec.textAlign == "center", "stacked values are centred")
 end
 
+-- ── the gamer-mode pill ──
+
+local on = { enabled = true, suspended = { "gslapper" } }
+local off = { enabled = false, suspended = {} }
+
+local lit = monitor.buildTree(FULL, on, defaults)
+local dark = monitor.buildTree(FULL, off, defaults)
+
+assert(dark.spec.fill == nil, "no tint while gamer mode is off")
+assert(lit.spec.fill == "primary/0.15",
+    "a theme-aware tint while gamer mode is on, got " .. tostring(lit.spec.fill))
+
+-- The pill must not move anything. Identical padding in both states is the whole point
+-- of tinting rather than inserting a status segment.
+assert(lit.spec.paddingH == dark.spec.paddingH, "padding identical on and off")
+assert(#lit.children == #dark.children, "the same segments in both states")
+
+-- Both conditions, not either.
+local noHighlight = helpers.copy(defaults)
+noHighlight.highlight_gamer_mode = false
+assert(monitor.buildTree(FULL, on, noHighlight).spec.fill == nil,
+    "no tint when the highlight setting is off, even with gamer mode on")
+
+assert(monitor.readConfig().highlight_gamer_mode == true, "highlight on by default")
+
+-- A vertical bar grows no flame band, but it is still gamer mode and still gets the tint.
+local litVertical = monitor.buildTree(FULL, on, defaults, true)
+local darkVertical = monitor.buildTree(FULL, off, defaults, true)
+assert(litVertical.spec.fill == "primary/0.15", "vertical is tinted too, got " .. tostring(litVertical.spec.fill))
+assert(darkVertical.spec.fill == nil, "vertical is untinted while gamer mode is off")
+assert(litVertical.spec.paddingH == darkVertical.spec.paddingH, "vertical padding identical on and off")
+
 -- ── config and clicks ──
 
 rendered = nil

@@ -10,6 +10,8 @@
 local PANEL_ID = "nomadcxx/gamer-mode:main"
 local MIB_PER_GIB = 1024
 local PLACEHOLDER = "—"
+-- A role with an alpha suffix rather than a hex value, so the tint follows the theme.
+local PILL_FILL = "primary/0.15"
 
 local M = {}
 
@@ -116,6 +118,7 @@ function M.readConfig()
         show_load = bool("show_load", false),
         show_net = bool("show_net", true),
         show_glyphs = bool("show_glyphs", true),
+        highlight_gamer_mode = bool("highlight_gamer_mode", true),
     }
 end
 
@@ -162,6 +165,19 @@ local function segmentNode(segment, showGlyphs)
     return ui.row({ align = "center", gap = 3 }, children)
 end
 
+-- The pill belongs to whichever root the layout produced. Padding and radius are
+-- unconditional in both orientations: painting the fill must not change the layout, or
+-- every digit shifts the moment gamer mode is toggled.
+local function pillProps(config, gm, vertical)
+    local props = vertical
+            and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }
+            or { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
+    if config.highlight_gamer_mode and gm and gm.enabled then
+        props.fill = PILL_FILL
+    end
+    return props
+end
+
 -- Segments of the same group sit close together and groups sit further apart, which is
 -- what makes three clusters read as three clusters rather than one run of numbers.
 function M.buildTree(m, gm, config, vertical)
@@ -183,7 +199,7 @@ function M.buildTree(m, gm, config, vertical)
             })
             rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
         end
-        return ui.column({ align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }, rows)
+        return ui.column(pillProps(config, gm, true), rows)
     end
 
     local groups = {}
@@ -205,7 +221,7 @@ function M.buildTree(m, gm, config, vertical)
 
     -- A column, not a row: Task 5 appends the flame band underneath these groups, and
     -- the pill's fill and padding belong to the container that holds both.
-    return ui.column({ align = "center", gap = 1, paddingH = 6, paddingV = 3 }, {
+    return ui.column(pillProps(config, gm, false), {
         ui.row({ align = "center", gap = 12 }, children),
     })
 end

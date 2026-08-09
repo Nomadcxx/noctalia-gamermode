@@ -158,3 +158,10 @@ type = "bool"
 label_key = "settings.monitor.show_glyphs.label"
 description_key = "settings.monitor.show_glyphs.description"
 default = true
+
+[[widget.setting]]
+key = "highlight_gamer_mode"
+type = "bool"
+label_key = "settings.monitor.highlight_gamer_mode.label"
+description_key = "settings.monitor.highlight_gamer_mode.description"
+default = true
