@@ -165,3 +165,28 @@ type = "bool"
 label_key = "settings.monitor.highlight_gamer_mode.label"
 description_key = "settings.monitor.highlight_gamer_mode.description"
 default = true
+
+[[widget.setting]]
+key = "flame"
+type = "select"
+label_key = "settings.monitor.flame.label"
+description_key = "settings.monitor.flame.description"
+default = "flare"
+visible_when = { key = "highlight_gamer_mode", values = [true] }
+options = [
+  { value = "off", label_key = "settings.monitor.flame.options.off" },
+  { value = "flare", label_key = "settings.monitor.flame.options.flare" },
+  { value = "always", label_key = "settings.monitor.flame.options.always" },
+]
+
+[[widget.setting]]
+key = "flame_style"
+type = "select"
+label_key = "settings.monitor.flame_style.label"
+description_key = "settings.monitor.flame_style.description"
+default = "graph"
+visible_when = { key = "highlight_gamer_mode", values = [true] }
+options = [
+  { value = "graph", label_key = "settings.monitor.flame_style.options.graph" },
+  { value = "bars", label_key = "settings.monitor.flame_style.options.bars" },
+]

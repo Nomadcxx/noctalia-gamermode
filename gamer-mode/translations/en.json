@@ -58,6 +58,16 @@
       "highlight_gamer_mode": {
         "label": "Highlight while gamer mode is on",
         "description": "Tints the readout instead of adding an icon, so nothing moves when it switches."
+      },
+      "flame": {
+        "label": "Flame",
+        "description": "Burns while gamer mode is on, as hot as the machine is working. \"Always\" keeps it animating the whole session, which costs CPU while you play.",
+        "options": { "off": "Off", "flare": "Flare on switch", "always": "Always" }
+      },
+      "flame_style": {
+        "label": "Flame style",
+        "description": "How the flame is drawn. \"Graph\" is one node and the cheapest; \"bars\" is crisper up close and costs 28.",
+        "options": { "graph": "Graph", "bars": "Bars" }
       }
     }
   },

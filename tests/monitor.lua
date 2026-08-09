@@ -254,4 +254,166 @@ assert(mock.published.command.action == "toggle", "right-click always toggles")
 assert(mock.published.command.nonce > leftCommand.nonce, "click commands carry fresh nonces")
 assert(mock.toggledPanel == nil, "right-click does not open the panel")
 
+-- ── heat: the flame reports the machine ──
+
+assert(monitor.heatOf({ available = false }) == 0, "no heat before the first sample")
+
+local idle = { available = true, cpuPerc = 0.02, gpuAvailable = true, gpuPerc = 0.03, cpuTemp = 36, gpuTemp = 34 }
+local pegged = { available = true, cpuPerc = 0.97, gpuAvailable = true, gpuPerc = 0.99, cpuTemp = 88, gpuTemp = 84 }
+assert(monitor.heatOf(idle) < 0.1, "an idle machine barely burns, got " .. monitor.heatOf(idle))
+assert(monitor.heatOf(pegged) > 0.9, "a pegged machine rages, got " .. monitor.heatOf(pegged))
+
+-- Usage leads, but a hot card at moderate load still earns a hotter flame.
+local warm = { available = true, cpuPerc = 0.4, gpuAvailable = true, gpuPerc = 0.4, cpuTemp = 82, gpuTemp = 80 }
+local cool = { available = true, cpuPerc = 0.4, gpuAvailable = true, gpuPerc = 0.4, cpuTemp = 42, gpuTemp = 40 }
+assert(monitor.heatOf(warm) > monitor.heatOf(cool), "temperature raises the heat at equal usage")
+
+-- ── the heat field ──
+
+local field = {}
+for i = 1, 28 do field[i] = 0 end
+for _ = 1, 40 do monitor.stepFlame(field, 0.9, 33) end
+local total, peak = 0, 0
+for i = 1, 28 do
+    total = total + field[i]
+    peak = math.max(peak, field[i])
+    assert(field[i] >= 0 and field[i] <= 1, "every column stays in range, got " .. field[i])
+end
+assert(total > 0, "a hot field has heat in it")
+assert(peak > 0.4, "sparks reach the top, peak was " .. peak)
+
+-- It has to die down too, or "off" would never look off.
+for _ = 1, 400 do monitor.stepFlame(field, 0, 33) end
+local cold = 0
+for i = 1, 28 do cold = cold + field[i] end
+assert(cold < 0.5, "the field decays to nothing without sparks, got " .. cold)
+
+-- ── the band ──
+
+local defaultsFlame = monitor.readConfig()
+assert(defaultsFlame.flame == "flare", "flare by default")
+assert(defaultsFlame.flame_style == "graph", "graph by default")
+
+local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
+assert(#litTree.children == 2, "the band joins the segment row, got " .. #litTree.children)
+assert(litTree.children[2].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+
+local barsConfig = helpers.copy(defaultsFlame)
+barsConfig.flame_style = "bars"
+local barsTree = monitor.buildTree(FULL, on, barsConfig, false, 0.8)
+assert(barsTree.children[2].kind == "row", "bars style renders a row of boxes")
+assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.children[2].children)
+
+-- No band when nothing is burning: absent, not flat.
+assert(#monitor.buildTree(FULL, on, defaultsFlame, false, nil).children == 1, "no band when not burning")
+assert(#monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children == 1, "no band when gamer mode is off")
+
+-- A vertical bar has no horizontal room for it.
+assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
+    "a vertical readout stacks segments and grows no band")
+
+-- ── intervals ──
+
+mock.config.flame = "flare"
+mock.config.flame_style = "graph"
+
+-- Task 1's test left gamer mode on, and under the finished watcher that off-to-on edge
+-- already armed a flare. Settle it first: the on-to-off edge restores the idle interval
+-- through the real code path, so the assertion still earns its keep.
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+assert(mock.updateIntervalMs == 1000,
+    "gamer mode going off restores the idle tick, got " .. tostring(mock.updateIntervalMs))
+
+-- The same constant through the other door: nothing burning, so a config change settles.
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 1000,
+    "a config change with nothing burning settles to idle, got " .. tostring(mock.updateIntervalMs))
+
+mock.updateIntervalMs = nil
+
+mock.state.set("game_mode", { enabled = true, suspended = { "gslapper" } })
+assert(mock.updateIntervalMs == 33, "flare raises the tick, got " .. tostring(mock.updateIntervalMs))
+
+-- The flare has to end on its own. A stuck 30fps loop is the expensive failure, and it
+-- would be burning that CPU exactly while a game is running.
+local guard = 0
+while mock.updateIntervalMs == 33 and guard < 200 do
+    mock.clock = mock.clock + 100
+    update()
+    guard = guard + 1
+end
+assert(mock.updateIntervalMs == 1000, "flare restores the idle tick when it finishes")
+assert(guard < 200, "the flare terminates rather than spinning")
+
+mock.updateIntervalMs = nil
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+assert(mock.updateIntervalMs == 1000, "no flare when gamer mode goes off, got " .. tostring(mock.updateIntervalMs))
+
+-- ── flame = off ──
+
+mock.config.flame = "off"
+mock.updateIntervalMs = nil
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(mock.updateIntervalMs == nil, "flame=off never raises the tick")
+
+local offConfig = monitor.readConfig()
+assert(offConfig.flame == "off", "the setting is read")
+assert(monitor.buildTree(FULL, on, offConfig, false, nil).spec.fill == "primary/0.15",
+    "flame=off still tints, it just does not burn")
+
+-- ── flame = always ──
+
+mock.config.flame = "always"
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+mock.updateIntervalMs = nil
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(mock.updateIntervalMs == 33, "always raises the tick on the off-to-on edge, got " .. tostring(mock.updateIntervalMs))
+
+-- `always` is a loop, not an edge: no transition fires when the user switches the setting
+-- while gamer mode is already on, so onConfigChanged must arm it.
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 33, "onConfigChanged arms the loop when gamer mode is already on")
+
+rendered = nil
+mock.clock = mock.clock + 40
+update()
+assert(rendered ~= nil, "update re-renders while the loop runs")
+
+-- Third arm/disarm path: the highlight switched off while `always` is running. There is
+-- no state edge for this either, so onConfigChanged has to catch it or the loop runs on
+-- over a pill that is no longer painted.
+mock.config.highlight_gamer_mode = false
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 1000,
+    "turning the highlight off stops the always loop, got " .. tostring(mock.updateIntervalMs))
+mock.config.highlight_gamer_mode = nil
+
+-- Opting out during a flare must stop the expensive tick immediately, not after the
+-- remaining animation window.
+mock.config.flame = "flare"
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(mock.updateIntervalMs == 33, "flare armed for the mid-flight opt-out check")
+mock.config.flame = "off"
+onConfigChanged()
+assert(mock.updateIntervalMs == 1000, "switching flame off mid-flare settles immediately")
+
+-- `always` also has to arm at load: there is no state edge when the widget appears after
+-- gamer mode was already enabled.
+local bootBar = { rendered = nil }
+_G.barWidget = {
+    render = function(tree) bootBar.rendered = tree end,
+    setTooltip = function(value) bootBar.tooltip = value end,
+    isVertical = function() return false end,
+}
+local bootMock = helpers.newNoctalia({ config = { flame = "always" } })
+bootMock.published.metrics = helpers.copy(FULL)
+bootMock.published.game_mode = { enabled = true, suspended = {} }
+dofile("gamer-mode/monitor.luau")
+assert(bootMock.updateIntervalMs == 33, "always arms at load when gamer mode is already on")
+assert(bootBar.rendered ~= nil, "the already-enabled widget still renders at load")
+
 print("monitor: passed")
