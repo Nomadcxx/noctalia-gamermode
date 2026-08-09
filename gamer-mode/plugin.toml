@@ -92,3 +92,69 @@ keyboard_focus = "on_demand"
 [[widget]]
 id = "gamermode"
 entry = "widget.luau"
+
+[[widget]]
+id = "monitor"
+entry = "monitor.luau"
+
+[[widget.setting]]
+key = "show_cpu"
+type = "bool"
+label_key = "settings.monitor.show_cpu.label"
+description_key = "settings.monitor.show_cpu.description"
+default = true
+
+[[widget.setting]]
+key = "show_cpu_temp"
+type = "bool"
+label_key = "settings.monitor.show_cpu_temp.label"
+default = true
+
+[[widget.setting]]
+key = "show_ram"
+type = "bool"
+label_key = "settings.monitor.show_ram.label"
+default = true
+
+[[widget.setting]]
+key = "show_swap"
+type = "bool"
+label_key = "settings.monitor.show_swap.label"
+default = false
+
+[[widget.setting]]
+key = "show_gpu"
+type = "bool"
+label_key = "settings.monitor.show_gpu.label"
+default = true
+
+[[widget.setting]]
+key = "show_gpu_temp"
+type = "bool"
+label_key = "settings.monitor.show_gpu_temp.label"
+default = true
+
+[[widget.setting]]
+key = "show_vram"
+type = "bool"
+label_key = "settings.monitor.show_vram.label"
+default = false
+
+[[widget.setting]]
+key = "show_load"
+type = "bool"
+label_key = "settings.monitor.show_load.label"
+default = false
+
+[[widget.setting]]
+key = "show_net"
+type = "bool"
+label_key = "settings.monitor.show_net.label"
+default = true
+
+[[widget.setting]]
+key = "show_glyphs"
+type = "bool"
+label_key = "settings.monitor.show_glyphs.label"
+description_key = "settings.monitor.show_glyphs.description"
+default = true

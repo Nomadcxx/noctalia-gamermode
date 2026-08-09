@@ -43,6 +43,18 @@
     "targets": {
       "label": "Suspend targets (JSON)",
       "description": "Advanced: JSON array of {match, kind, profiles}. Kind: process, user-service, system-service, container."
+    },
+    "monitor": {
+      "show_cpu": { "label": "CPU usage", "description": "Show processor load in the bar." },
+      "show_cpu_temp": { "label": "CPU temperature" },
+      "show_ram": { "label": "RAM used" },
+      "show_swap": { "label": "Swap used" },
+      "show_gpu": { "label": "GPU usage" },
+      "show_gpu_temp": { "label": "GPU temperature" },
+      "show_vram": { "label": "VRAM used" },
+      "show_load": { "label": "Load average" },
+      "show_net": { "label": "Network rates" },
+      "show_glyphs": { "label": "Icons", "description": "Show an icon beside each reading. Off gives numbers only." }
     }
   },
   "panel": {
