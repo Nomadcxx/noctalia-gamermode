@@ -64,7 +64,9 @@ end
 -- has room for the long form and uses it.
 local function perSecond(bytes)
     local value = tonumber(bytes) or 0
-    if value >= 1024 * 1024 then
+    if value >= 1024 * 1024 * 1024 then
+        return string.format("%.1fG", value / (1024 * 1024 * 1024))
+    elseif value >= 1024 * 1024 then
         return string.format("%.1fM", value / (1024 * 1024))
     elseif value >= 1024 then
         return string.format("%.0fK", value / 1024)
@@ -396,7 +398,7 @@ function M.buildTree(m, gm, config, vertical, burning)
 end
 
 local function burningLevel(config)
-    if config.flame == "off" then
+    if barWidget.isVertical() or config.flame == "off" then
         return nil
     end
     if not (config.highlight_gamer_mode and gameMode.enabled) then
@@ -436,8 +438,9 @@ noctalia.state.watch("game_mode", function(value)
     gameMode = type(value) == "table" and value or { enabled = false, suspended = {} }
     local config = M.readConfig()
     local enabled = gameMode.enabled == true
+    local horizontal = not barWidget.isVertical()
 
-    if enabled and not wasEnabled and config.highlight_gamer_mode then
+    if enabled and not wasEnabled and config.highlight_gamer_mode and horizontal then
         if config.flame == "flare" then
             flareStartedMs = noctalia.nowMs()
             noctalia.setUpdateInterval(FLARE_INTERVAL_MS)
@@ -473,6 +476,11 @@ end
 -- which is what keeps the idle cost to one no-op call a second.
 function update()
     local config = M.readConfig()
+    if barWidget.isVertical() then
+        flareStartedMs = nil
+        noctalia.setUpdateInterval(IDLE_INTERVAL_MS)
+        return
+    end
     if config.flame == "always" and gameMode.enabled and config.highlight_gamer_mode then
         render()
         return
@@ -489,7 +497,7 @@ end
 
 function onConfigChanged()
     local config = M.readConfig()
-    if config.flame == "off" or not (gameMode.enabled and config.highlight_gamer_mode) then
+    if barWidget.isVertical() or config.flame == "off" or not (gameMode.enabled and config.highlight_gamer_mode) then
         flareStartedMs = nil
         noctalia.setUpdateInterval(IDLE_INTERVAL_MS)
     elseif config.flame == "always" then
@@ -504,7 +512,10 @@ noctalia.setUpdateInterval(IDLE_INTERVAL_MS)
 -- `always` is a free-running loop, not an edge: gamer mode may already be on when the
 -- widget loads, and no transition will fire to start it.
 local bootConfig = M.readConfig()
-if bootConfig.flame == "always" and gameMode.enabled and bootConfig.highlight_gamer_mode then
+if not barWidget.isVertical()
+        and bootConfig.flame == "always"
+        and gameMode.enabled
+        and bootConfig.highlight_gamer_mode then
     noctalia.setUpdateInterval(FLARE_INTERVAL_MS)
 end
 render()

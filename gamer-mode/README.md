@@ -68,7 +68,7 @@ stays out of its tooltip, so hovering adds the disabled readings instead of
 repeating the row. The tooltip always includes gamer-mode state and the number
 of suspended targets. Vertical bars stack each reading and omit the flame.
 
-<img src="../docs/images/monitor.webp" width="760" alt="Monitor widget with gamer mode off above and on below">
+![Monitor widget with gamer mode off above and on below](monitor.webp)
 
 Gamer mode off above; the tinted pill and live flame below show it running.
 

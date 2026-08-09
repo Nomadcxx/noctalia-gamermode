@@ -38,9 +38,9 @@ function M.tooltipRows(m, showTemps, gm)
         -- more honest than a zero that looks like an idle GPU.
         if m.gpuAvailable and m.gpuPerc then
             rows[#rows + 1] = { key = noctalia.tr("widget.gpu"), value = percent(m.gpuPerc) }
-            if showTemps and tonumber(m.gpuTemp) then
-                rows[#rows + 1] = { key = noctalia.tr("widget.gpu_temp"), value = string.format("%d°C", math.floor(tonumber(m.gpuTemp) + 0.5)) }
-            end
+        end
+        if showTemps and tonumber(m.gpuTemp) then
+            rows[#rows + 1] = { key = noctalia.tr("widget.gpu_temp"), value = string.format("%d°C", math.floor(tonumber(m.gpuTemp) + 0.5)) }
         end
         if m.vramUsedMb then
             rows[#rows + 1] = { key = noctalia.tr("widget.vram"), value = gibibytes(m.vramUsedMb) }

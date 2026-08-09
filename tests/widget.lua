@@ -85,6 +85,14 @@ assert(partial["widget.gpu"] == "40%", "gpu usage shown")
 assert(partial["widget.vram"] == nil, "vram omitted when the reading is absent")
 assert(partial["widget.gpu_temp"] == nil, "no temperature when none was reported")
 
+local temperatureOnly = rowMap(widget.tooltipRows(
+    { available = true, cpuPerc = 0.1, memUsedMb = 512, gpuAvailable = true, gpuTemp = 61 },
+    true,
+    { enabled = false }
+))
+assert(temperatureOnly["widget.gpu"] == nil, "no gpu usage row without a reading")
+assert(temperatureOnly["widget.gpu_temp"] == "61°C", "gpu temperature does not depend on a usage reading")
+
 local unavailable = rowMap(widget.tooltipRows({ available = false }, true, { enabled = false }))
 assert(unavailable["widget.tooltip_loading"] == "—", "loading row instead of fabricated zeroes")
 assert(unavailable["widget.gamer_mode"] ~= nil, "gamer-mode state remains visible while metrics load")

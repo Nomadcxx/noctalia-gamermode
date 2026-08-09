@@ -76,6 +76,11 @@ assert(segments[2].text == "45°", "cpu temperature, got " .. segments[2].text)
 assert(segments[3].text == "8.4G", "ram in GiB, got " .. segments[3].text)
 assert(segments[6].text == "548K", "rx rate, got " .. segments[6].text)
 
+local fastNet = helpers.copy(FULL)
+fastNet.netRxPerSec = 1.25 * 1024 * 1024 * 1024
+local fastSegments = monitor.formatSegments(fastNet, config)
+assert(fastSegments[6].text == "1.2G", "GiB rates stay inside the fixed label, got " .. fastSegments[6].text)
+
 -- ── it renders on load and on every state change ──
 
 assert(rendered ~= nil, "the widget renders as soon as it loads")
@@ -366,6 +371,14 @@ assert(monitor.buildTree(FULL, on, offConfig, false, nil).spec.fill == "primary/
 -- ── flame = always ──
 
 mock.config.flame = "always"
+
+vertical = true
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(mock.updateIntervalMs == 1000,
+    "a vertical bar leaves the invisible flame at the idle tick, got " .. tostring(mock.updateIntervalMs))
+vertical = false
+
 mock.state.set("game_mode", { enabled = false, suspended = {} })
 mock.updateIntervalMs = nil
 mock.state.set("game_mode", { enabled = true, suspended = {} })
