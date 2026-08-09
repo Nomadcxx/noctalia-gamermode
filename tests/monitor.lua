@@ -129,4 +129,73 @@ for _, segment in ipairs(pending) do
     assert(segment.placeholder == true, "placeholders are marked so the renderer can dim them")
 end
 
+-- ── grouping and widths ──
+
+local function labelsOf(node, out)
+    out = out or {}
+    if type(node) ~= "table" then
+        return out
+    end
+    if node.kind == "label" then
+        out[#out + 1] = node.spec
+    end
+    for _, child in ipairs(node.children or {}) do
+        labelsOf(child, out)
+    end
+    return out
+end
+
+local function glyphCount(node)
+    local count = 0
+    if type(node) ~= "table" then
+        return 0
+    end
+    if node.kind == "glyph" then
+        count = 1
+    end
+    for _, child in ipairs(node.children or {}) do
+        count = count + glyphCount(child)
+    end
+    return count
+end
+
+local defaults = monitor.readConfig()
+local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaults)
+
+-- The root is a column so the flame band of Task 5 has somewhere to go. Its first child
+-- is the row of groups; nothing else is in it until something is burning.
+assert(tree.kind == "column", "the readout root is a column, got " .. tostring(tree.kind))
+assert(#tree.children == 1, "only the segment row until a flame is lit, got " .. #tree.children)
+local segmentRow = tree.children[1]
+assert(segmentRow.kind == "row", "the segments live in a row, got " .. tostring(segmentRow.kind))
+assert(#segmentRow.children == 4, "cpu, mem, gpu and net form four groups, got " .. #segmentRow.children)
+
+for _, spec in ipairs(labelsOf(tree)) do
+    assert(type(spec.width) == "number" and spec.width > 0,
+        "every value label reserves a fixed width, or the bar twitches on refresh")
+    assert(spec.textAlign == "right", "values are right-aligned so columns line up")
+end
+
+assert(glyphCount(tree) == 7, "one glyph per segment, got " .. glyphCount(tree))
+
+-- ── glyphs off ──
+
+local bare = helpers.copy(defaults)
+bare.show_glyphs = false
+assert(glyphCount(monitor.buildTree(FULL, { enabled = false }, bare)) == 0,
+    "no glyphs when the setting is off")
+assert(#labelsOf(monitor.buildTree(FULL, { enabled = false }, bare)) == 7,
+    "the values stay when the glyphs go")
+
+-- ── vertical bars ──
+
+-- "CPU 12%" cannot fit a 26px-wide bar, so segments stack instead of running across.
+local stacked = monitor.buildTree(FULL, { enabled = false }, defaults, true)
+assert(stacked.kind == "column", "a vertical bar stacks, got " .. tostring(stacked.kind))
+assert(#stacked.children == 7, "one row per segment when stacked, got " .. #stacked.children)
+for _, spec in ipairs(labelsOf(stacked)) do
+    assert(spec.width == nil, "no width reservation vertically: a ~26px bar cannot fit one")
+    assert(spec.textAlign == "center", "stacked values are centred")
+end
+
 print("monitor: passed")

@@ -146,19 +146,72 @@ function M.formatSegments(m, config)
     return out
 end
 
-function M.buildTree(m, gm, config)
+local function segmentNode(segment, showGlyphs)
     local children = {}
-    for _, segment in ipairs(M.formatSegments(m, config)) do
-        children[#children + 1] = ui.row({ align = "center", gap = 3 }, {
-            ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" }),
-            ui.label({ text = segment.text, width = segment.width, textAlign = "right", color = "on_surface" }),
-        })
+    if showGlyphs then
+        children[#children + 1] = ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" })
     end
-    return ui.row({ align = "center", gap = 10, paddingH = 6 }, children)
+    children[#children + 1] = ui.label({
+        text = segment.text,
+        width = segment.width,
+        textAlign = "right",
+        -- A placeholder in the value colour reads as data; dim it so the loading state
+        -- reads as loading.
+        color = segment.placeholder and "on_surface_variant" or "on_surface",
+    })
+    return ui.row({ align = "center", gap = 3 }, children)
+end
+
+-- Segments of the same group sit close together and groups sit further apart, which is
+-- what makes three clusters read as three clusters rather than one run of numbers.
+function M.buildTree(m, gm, config, vertical)
+    local segments = M.formatSegments(m, config)
+
+    if vertical then
+        -- A vertical bar is ~26px wide, so the horizontal width reservations would clip.
+        -- Segments stack glyph over value, centred, with no reserved width.
+        local rows = {}
+        for _, segment in ipairs(segments) do
+            local cell = {}
+            if config.show_glyphs then
+                cell[#cell + 1] = ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" })
+            end
+            cell[#cell + 1] = ui.label({
+                text = segment.text,
+                textAlign = "center",
+                color = segment.placeholder and "on_surface_variant" or "on_surface",
+            })
+            rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
+        end
+        return ui.column({ align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }, rows)
+    end
+
+    local groups = {}
+    local currentId = nil
+    local current = nil
+    for _, segment in ipairs(segments) do
+        if segment.group ~= currentId then
+            current = {}
+            groups[#groups + 1] = current
+            currentId = segment.group
+        end
+        current[#current + 1] = segmentNode(segment, config.show_glyphs)
+    end
+
+    local children = {}
+    for _, group in ipairs(groups) do
+        children[#children + 1] = ui.row({ align = "center", gap = 6 }, group)
+    end
+
+    -- A column, not a row: Task 5 appends the flame band underneath these groups, and
+    -- the pill's fill and padding belong to the container that holds both.
+    return ui.column({ align = "center", gap = 1, paddingH = 6, paddingV = 3 }, {
+        ui.row({ align = "center", gap = 12 }, children),
+    })
 end
 
 local function render()
-    barWidget.render(M.buildTree(metrics, gameMode, M.readConfig()))
+    barWidget.render(M.buildTree(metrics, gameMode, M.readConfig(), barWidget.isVertical()))
 end
 
 noctalia.state.watch("metrics", function(value)
