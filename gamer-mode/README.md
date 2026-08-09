@@ -11,7 +11,7 @@ background resource hogs and restores what was running before.
 | Field | Value |
 | --- | --- |
 | ID | `nomadcxx/gamer-mode` |
-| Entries | Bar widget: `gamermode`; panel: `main`; service: `service` |
+| Entries | Bar widgets: `gamermode`, `monitor`; panel: `main`; service: `service` |
 
 ## Requirements
 
@@ -30,13 +30,8 @@ panel hides its power row and the toggle still works.
 | Left-click | Opens the panel. Set **Left-click action** to `toggle` to toggle instead. |
 | Right-click | Toggles gamer mode, whatever **Left-click action** says. |
 
-The glyph takes the accent colour while gamer mode runs.
-
-The tooltip carries the live readings:
-
-```
-CPU 25% 59°C | RAM 10.9G | GPU 18% 61°C | VRAM 2.5G
-```
+The glyph takes the accent colour while gamer mode runs. Its tooltip shows the
+live readings in an aligned table and ends with gamer-mode state.
 
 The panel shows a bar per reading, the power profile selector, the suspend
 profile selector, what the plugin has suspended, and the maintenance actions.
@@ -60,6 +55,43 @@ Toggle the panel:
 ```sh
 noctalia msg panel-toggle nomadcxx/gamer-mode:main
 ```
+
+## Monitor
+
+Add the `monitor` widget when you want the readings on the bar. Keep the
+`gamermode` widget for a compact toggle icon. Both entries use the same click
+actions: left-click follows **Left-click action**, and right-click toggles gamer
+mode.
+
+The monitor groups related readings in a fixed order. A metric shown on the bar
+stays out of its tooltip, so hovering adds the disabled readings instead of
+repeating the row. The tooltip always includes gamer-mode state and the number
+of suspended targets. Vertical bars stack each reading and omit the flame.
+
+<img src="../docs/images/monitor.webp" width="760" alt="Monitor widget with gamer mode off above and on below">
+
+Gamer mode off above; the tinted pill and live flame below show it running.
+
+| Monitor setting | Default | Description |
+| --- | --- | --- |
+| CPU usage | On | Shows processor load. |
+| CPU temperature | On | Shows processor temperature. |
+| RAM used | On | Shows used memory in GiB. |
+| Swap used | Off | Shows swap percentage when swap exists. |
+| GPU usage | On | Shows graphics load when the shell reports a GPU. |
+| GPU temperature | On | Shows graphics temperature when available. |
+| VRAM used | Off | Shows used video memory when available. |
+| Load average | Off | Shows the one-minute load average. |
+| Network rates | On | Shows aggregate download and upload rates. |
+| Icons | On | Places a glyph beside each reading. Turn it off for numbers only. |
+| Highlight while gamer mode is on | On | Tints the whole readout without moving its contents. |
+| Flame | `flare` | `off`, a 900 ms `flare`, or `always`. |
+| Flame style | `graph` | One graph node, or 28 sharper `bars`. |
+
+`always` holds the widget at about 30 frames per second while gamer mode runs.
+Noctalia keeps widget timers running when another window covers the bar, so
+this setting consumes CPU during play. `flare` returns to a one-second idle tick
+after 900 ms.
 
 ### Maintenance
 
@@ -94,6 +126,8 @@ because succeeding into an out-of-memory kill would defeat the point.
 | Setting | Default | Description |
 | --- | --- | --- |
 | Bar icon | `device-gamepad-2` | Glyph shown in the bar. Names a glyph from the shell's registry. |
+| Custom icon | Empty | SVG or PNG used instead of the glyph. File changes reload in the bar. |
+| Custom icon, gamer mode on | Empty | Optional active-state image for the toggle. |
 | Left-click action | `open_panel` | Opens the panel or toggles gamer mode. Right-click toggles either way. |
 | Poll interval | `3` | Seconds between metric updates: 2, 3, or 5. |
 | Gamer mode profile | `light` | Selects which target profile a toggle applies. |
@@ -104,6 +138,10 @@ because succeeding into an out-of-memory kill would defeat the point.
 The setting names the profile a bar click applies. The panel selector overrides
 it for the enable it is sent with, and the bar's right-click toggle does not see
 that selection, so it uses the setting.
+
+Noctalia cannot tint a custom image. Set **Custom icon, gamer mode on** if the
+toggle needs a distinct active state; otherwise it reuses the resting image and
+reports state in the tooltip.
 
 ## Target list
 
@@ -377,9 +415,8 @@ still be suspended.
   same reason.
 - No I/O weighting for user units. cgroup v2 delegates `cpu`, `memory`, and
   `pids` to the user manager, and not `io`.
-- The bar widget carries the readings in its tooltip. Plugin API 19 does hand a
-  widget `onHover(entered)`, so a richer hover surface is possible and is not
-  built.
+- The toggle widget carries the readings in its tooltip. The monitor shows your
+  selected readings in the bar and puts the rest in its tooltip.
 - The panel shows no per-core CPU breakdown and no top-process list.
 - Nothing places the widget on your bar for you. The manifest has no field for a
   default bar section, and a plugin can read its settings but not write them, so
