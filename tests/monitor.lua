@@ -198,4 +198,28 @@ for _, spec in ipairs(labelsOf(stacked)) do
     assert(spec.textAlign == "center", "stacked values are centred")
 end
 
+-- ── config and clicks ──
+
+rendered = nil
+onConfigChanged()
+assert(rendered ~= nil, "a config change re-renders")
+
+mock.config.click_action = "open_panel"
+mock.toggledPanel = nil
+mock.published.command = nil
+onClick()
+assert(mock.toggledPanel == "nomadcxx/gamer-mode:main", "left-click opens the shared panel")
+assert(mock.published.command == nil, "opening the panel sends no command")
+
+mock.config.click_action = "toggle"
+mock.toggledPanel = nil
+onClick()
+local leftCommand = mock.published.command
+assert(type(leftCommand) == "table" and leftCommand.action == "toggle", "toggle click sends a command")
+
+onRightClick()
+assert(mock.published.command.action == "toggle", "right-click always toggles")
+assert(mock.published.command.nonce > leftCommand.nonce, "click commands carry fresh nonces")
+assert(mock.toggledPanel == nil, "right-click does not open the panel")
+
 print("monitor: passed")

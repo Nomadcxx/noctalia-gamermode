@@ -14,6 +14,7 @@ expect '^plugin_api = 19$' gamer-mode/plugin.toml
 expect 'entry = "service.luau"' gamer-mode/plugin.toml
 expect 'entry = "panel.luau"' gamer-mode/plugin.toml
 expect 'entry = "widget.luau"' gamer-mode/plugin.toml
+expect 'entry = "monitor.luau"' gamer-mode/plugin.toml
 
 # `icon` and the `glyph` setting default must name glyphs from the shell's registry;
 # a filesystem path renders as a missing glyph.
@@ -55,7 +56,7 @@ assert(lookup("panel.title") and lookup("notify.enabled_title"), "panel/notify s
 -- A missing key renders as the raw key in the UI and nothing else catches it: the panel
 -- suite drives the render but asserts on structure, and tr() returning its argument means
 -- the label is still a non-empty string.
-local sources = { "service", "panel", "widget" }
+local sources = { "service", "panel", "widget", "monitor" }
 local runtime = 0
 for _, name in ipairs(sources) do
     local file = assert(io.open("gamer-mode/" .. name .. ".luau"))
