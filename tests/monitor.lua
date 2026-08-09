@@ -297,6 +297,7 @@ assert(defaultsFlame.flame_style == "graph", "graph by default")
 local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
 assert(#litTree.children == 2, "the band joins the segment row, got " .. #litTree.children)
 assert(litTree.children[2].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+assert(litTree.spec.align == "stretch", "the column stretches the graph to the readout width")
 
 local barsConfig = helpers.copy(defaultsFlame)
 barsConfig.flame_style = "bars"

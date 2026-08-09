@@ -333,7 +333,7 @@ end
 local function pillProps(config, gm, vertical)
     local props = vertical
             and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }
-            or { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
+            or { align = "stretch", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
     if config.highlight_gamer_mode and gm and gm.enabled then
         props.fill = PILL_FILL
     end
