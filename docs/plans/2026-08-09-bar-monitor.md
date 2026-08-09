@@ -706,7 +706,7 @@ function M.buildTree(m, gm, config, vertical)
             })
             rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
         end
-        return ui.column({ align = "center", gap = 2 }, rows)
+        return ui.column({ align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }, rows)
     end
 
     local groups = {}
@@ -800,6 +800,13 @@ assert(monitor.buildTree(FULL, on, noHighlight).spec.fill == nil,
     "no tint when the highlight setting is off, even with gamer mode on")
 
 assert(monitor.readConfig().highlight_gamer_mode == true, "highlight on by default")
+
+-- A vertical bar grows no flame band, but it is still gamer mode and still gets the tint.
+local litVertical = monitor.buildTree(FULL, on, defaults, true)
+local darkVertical = monitor.buildTree(FULL, off, defaults, true)
+assert(litVertical.spec.fill == "primary/0.15", "vertical is tinted too, got " .. tostring(litVertical.spec.fill))
+assert(darkVertical.spec.fill == nil, "vertical is untinted while gamer mode is off")
+assert(litVertical.spec.paddingH == darkVertical.spec.paddingH, "vertical padding identical on and off")
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
@@ -842,16 +849,34 @@ Add to the table returned by `M.readConfig`:
         highlight_gamer_mode = bool("highlight_gamer_mode", true),
 ```
 
-Replace the final `return` of `M.buildTree` with:
+Add a helper above `M.buildTree`, and use it for **both** roots. A vertical bar grows no
+flame band, but it is still gamer mode and still gets the tint:
 
 ```lua
-    local props = { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
-    -- The padding above is unconditional. Painting the fill must not change the layout,
-    -- or every digit in the bar shifts the moment gamer mode is toggled.
+-- The pill belongs to whichever root the layout produced. Padding and radius are
+-- unconditional in both orientations: painting the fill must not change the layout, or
+-- every digit shifts the moment gamer mode is toggled.
+local function pillProps(config, gm, vertical)
+    local props = vertical
+            and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }
+            or { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
     if config.highlight_gamer_mode and gm and gm.enabled then
         props.fill = PILL_FILL
     end
-    return ui.column(props, {
+    return props
+end
+```
+
+Then replace the vertical return:
+
+```lua
+        return ui.column(pillProps(config, gm, true), rows)
+```
+
+and the horizontal one:
+
+```lua
+    return ui.column(pillProps(config, gm, false), {
         ui.row({ align = "center", gap = 12 }, children),
     })
 ```
@@ -968,11 +993,22 @@ assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
 
 -- ── intervals ──
 
-assert(mock.updateIntervalMs == 1000, "idle tick slowed on load, got " .. tostring(mock.updateIntervalMs))
-
 mock.config.flame = "flare"
 mock.config.flame_style = "graph"
+
+-- Task 1's test left gamer mode on, and under the finished watcher that off-to-on edge
+-- already armed a flare. Settle it first: the on-to-off edge restores the idle interval
+-- through the real code path, so the assertion still earns its keep.
 mock.state.set("game_mode", { enabled = false, suspended = {} })
+assert(mock.updateIntervalMs == 1000,
+    "gamer mode going off restores the idle tick, got " .. tostring(mock.updateIntervalMs))
+
+-- The same constant through the other door: nothing burning, so a config change settles.
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 1000,
+    "a config change with nothing burning settles to idle, got " .. tostring(mock.updateIntervalMs))
+
 mock.updateIntervalMs = nil
 
 mock.state.set("game_mode", { enabled = true, suspended = { "gslapper" } })
@@ -1023,6 +1059,16 @@ rendered = nil
 mock.clock = mock.clock + 40
 update()
 assert(rendered ~= nil, "update re-renders while the loop runs")
+
+-- Third arm/disarm path: the highlight switched off while `always` is running. There is
+-- no state edge for this either, so onConfigChanged has to catch it or the loop runs on
+-- over a pill that is no longer painted.
+mock.config.highlight_gamer_mode = false
+mock.updateIntervalMs = nil
+onConfigChanged()
+assert(mock.updateIntervalMs == 1000,
+    "turning the highlight off stops the always loop, got " .. tostring(mock.updateIntervalMs))
+mock.config.highlight_gamer_mode = nil
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
@@ -1240,11 +1286,8 @@ function M.buildTree(m, gm, config, vertical, burning)
 and the horizontal return becomes:
 
 ```lua
-    local props = { align = "center", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
+    local props = pillProps(config, gm, false)
     local lit = config.highlight_gamer_mode and gm and gm.enabled
-    if lit then
-        props.fill = PILL_FILL
-    end
 
     local stack = { ui.row({ align = "center", gap = 12 }, children) }
     -- Absent, not flat: a band drawn at zero height is still a node to reconcile, and it
@@ -1291,8 +1334,14 @@ local function render()
         M.stepFlame(flameField, burning, FLARE_INTERVAL_MS)
     end
     barWidget.render(M.buildTree(metrics, gameMode, config, barWidget.isVertical(), burning))
-    barWidget.setTooltip(M.tooltipRows(metrics, gameMode, config))
 end
+```
+
+(No `setTooltip` here. `M.tooltipRows` does not exist until Task 6, and `render` runs at
+load, so calling it now would take every test in this task down with it. Task 6 Step 4 adds
+the line.)
+
+```lua
 
 -- Called by the shell on its timer. It does nothing at all unless something is burning,
 -- which is what keeps the idle cost to one no-op call a second.
@@ -1865,10 +1914,12 @@ Run:
 
 ```bash
 cd /home/nomadx/noctalia-gamermode
-git diff main~1 -- gamer-mode/plugin.toml | grep -E '^\+(version|plugin_api|id|name)'
+grep -nE '^(id|name|version|plugin_api) =' gamer-mode/plugin.toml
 ```
 
-Expected: exactly one line, `+version = "0.7.0"`. `plugin_api` must still read 19; raising it would push older Noctalia installs onto a pinned older revision through the catalog's release ladder.
+Expected: `version = "0.7.0"`, `plugin_api = 19`, and `id` / `name` unchanged from what
+the catalog already lists. (Reading the file beats diffing a commit range — the bump is
+only the tip commit if every task ran in order.) `plugin_api` must still read 19; raising it would push older Noctalia installs onto a pinned older revision through the catalog's release ladder.
 
 - [ ] **Step 2: Sync into a fork checkout**
 

@@ -119,7 +119,9 @@ of numbers.
 
 Glyph names are taken from the vocabulary the built-in sysmon and this plugin's own panel
 already use, so the widget looks native rather than bolted on: `cpu-usage`,
-`cpu-temperature`, `gpu-usage`, `temperature`, `memory`, `storage`, `download`, `upload`.
+`cpu-temperature`, `gpu-usage`, `temperature`, `memory`, `storage`, `performance`,
+`download`, `upload`. All but `performance` come from the built-in sysmon; that one is
+borrowed from this plugin's own panel, which already uses it for load average.
 
 **Jitter is solved at the label, not the row.** Every value label carries an explicit
 `width` and `textAlign = "right"`. `12%` growing to `100%` shifts nothing, and columns line
@@ -276,7 +278,8 @@ defensible price for a live load indicator — but it is still a price, and the 
 opt into it.
 
 A vertical bar gets no band at all. It needs horizontal room, and a ~26 px column has
-none; the plain tint covers that case.
+none. The pill itself still applies — the tint, radius and padding come from a shared
+`pillProps` used by both roots, so gamer mode looks like gamer mode in either orientation.
 
 ## 6. Absent data, first sample, vertical bars
 
