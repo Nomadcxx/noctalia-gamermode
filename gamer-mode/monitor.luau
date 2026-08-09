@@ -36,8 +36,10 @@ local FLAME_STOPS = {
 
 local M = {}
 
-local metrics = noctalia.state.get("metrics") or { available = false }
-local gameMode = noctalia.state.get("game_mode") or { enabled = false, suspended = {} }
+local initialMetrics = noctalia.state.get("metrics")
+local initialGameMode = noctalia.state.get("game_mode")
+local metrics = type(initialMetrics) == "table" and initialMetrics or { available = false }
+local gameMode = type(initialGameMode) == "table" and initialGameMode or { enabled = false, suspended = {} }
 local nonceCounter = 0
 local flameField = {}
 for i = 1, FLAME_COLUMNS do
@@ -81,6 +83,7 @@ local SEGMENTS = {
     {
         id = "cpu_temp", setting = "show_cpu_temp", group = "cpu", glyph = "cpu-temperature", width = 34,
         value = function(m) return m.cpuTemp and degrees(m.cpuTemp) or nil end,
+        tip = function(m) return m.cpuTemp and string.format("%d°C", math.floor(m.cpuTemp + 0.5)) or nil end,
     },
     {
         id = "ram", setting = "show_ram", group = "mem", glyph = "memory", width = 42,
@@ -107,6 +110,7 @@ local SEGMENTS = {
     {
         id = "gpu_temp", setting = "show_gpu_temp", group = "gpu", glyph = "temperature", width = 34,
         value = function(m) return m.gpuTemp and degrees(m.gpuTemp) or nil end,
+        tip = function(m) return m.gpuTemp and string.format("%d°C", math.floor(m.gpuTemp + 0.5)) or nil end,
     },
     {
         id = "vram", setting = "show_vram", group = "gpu", glyph = "memory", width = 42,
@@ -176,6 +180,35 @@ function M.formatSegments(m, config)
         end
     end
     return out
+end
+
+-- The bar and the tooltip are complements: a segment the user put on the bar is left out
+-- of the tooltip, so hovering always adds something.
+function M.tooltipRows(m, gm, config)
+    m = type(m) == "table" and m or {}
+    local rows = {}
+    if m.available then
+        for _, segment in ipairs(SEGMENTS) do
+            if not config[segment.setting] then
+                local text = (segment.tip or segment.value)(m)
+                if text then
+                    rows[#rows + 1] = { key = noctalia.tr("widget." .. segment.id), value = text }
+                end
+            end
+        end
+    else
+        rows[#rows + 1] = { key = noctalia.tr("widget.tooltip_loading"), value = PLACEHOLDER }
+    end
+
+    local validGm = type(gm) == "table" and gm or {}
+    local suspended = type(validGm.suspended) == "table" and validGm.suspended or {}
+    rows[#rows + 1] = {
+        key = noctalia.tr("widget.gamer_mode"),
+        value = validGm.enabled == true
+            and noctalia.trp("widget.gamer_mode_on", #suspended)
+            or noctalia.tr("widget.gamer_mode_off"),
+    }
+    return rows
 end
 
 -- How hard the machine is working, 0..1 -- the thing the flame reports. Usage leads,
@@ -391,6 +424,7 @@ local function render()
         M.stepFlame(flameField, burning, FLARE_INTERVAL_MS)
     end
     barWidget.render(M.buildTree(metrics, gameMode, config, barWidget.isVertical(), burning))
+    barWidget.setTooltip(M.tooltipRows(metrics, gameMode, config))
 end
 
 noctalia.state.watch("metrics", function(value)

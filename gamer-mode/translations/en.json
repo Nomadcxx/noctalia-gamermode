@@ -1,6 +1,22 @@
 {
   "widget": {
-    "tooltip_loading": "Gamer Mode: loading metrics..."
+    "tooltip_loading": "Gamer Mode: loading metrics...",
+    "cpu": "CPU",
+    "cpu_temp": "CPU temp",
+    "ram": "RAM",
+    "swap": "Swap",
+    "gpu": "GPU",
+    "gpu_temp": "GPU temp",
+    "vram": "VRAM",
+    "load": "Load",
+    "net_rx": "Down",
+    "net_tx": "Up",
+    "gamer_mode": "Gamer mode",
+    "gamer_mode_on": {
+      "one": "On, 1 suspended",
+      "other": "On, {count} suspended"
+    },
+    "gamer_mode_off": "Off"
   },
   "settings": {
     "glyph": {

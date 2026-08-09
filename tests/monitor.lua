@@ -401,6 +401,47 @@ mock.config.flame = "off"
 onConfigChanged()
 assert(mock.updateIntervalMs == 1000, "switching flame off mid-flare settles immediately")
 
+-- ── tooltip ──
+
+-- The tooltip shows what the bar does not, so hovering adds information instead of
+-- repeating it.
+local rows = monitor.tooltipRows(FULL, off, defaults)
+local seen = {}
+for _, row in ipairs(rows) do
+    seen[row.key] = row.value
+end
+
+assert(seen["widget.swap"] ~= nil, "swap is off the bar by default, so it is in the tooltip")
+assert(seen["widget.load"] ~= nil, "load average is in the tooltip")
+assert(seen["widget.cpu"] == nil, "cpu is on the bar, so it is not repeated in the tooltip")
+
+local withGpuOff = helpers.copy(defaults)
+withGpuOff.show_gpu = false
+local rows2 = monitor.tooltipRows(FULL, off, withGpuOff)
+local seen2 = {}
+for _, row in ipairs(rows2) do
+    seen2[row.key] = row.value
+end
+assert(seen2["widget.gpu"] ~= nil, "turning a segment off moves it into the tooltip")
+
+-- Units the bar drops for space come back in the tooltip.
+local noTemp = helpers.copy(defaults)
+noTemp.show_cpu_temp = false
+local seenT = {}
+for _, row in ipairs(monitor.tooltipRows(FULL, off, noTemp)) do
+    seenT[row.key] = row.value
+end
+assert(seenT["widget.cpu_temp"] == "45°C", "tooltip temperatures carry the unit, got " .. tostring(seenT["widget.cpu_temp"]))
+
+-- Gamer mode is the thing the built-in sysmon widget can never report.
+assert(rows[#rows].key == "widget.gamer_mode", "the last row is gamer-mode state")
+local onRows = monitor.tooltipRows(FULL, on, defaults)
+assert(onRows[#onRows].value:find("1"), "the suspended count is in the gamer-mode row")
+
+local loadingRows = monitor.tooltipRows({ available = false }, nil, defaults)
+assert(loadingRows[1].key == "widget.tooltip_loading", "unknown metrics retain the loading row")
+assert(loadingRows[#loadingRows].key == "widget.gamer_mode", "unknown state still gets a gamer-mode row")
+
 -- `always` also has to arm at load: there is no state edge when the widget appears after
 -- gamer mode was already enabled.
 local bootBar = { rendered = nil }
@@ -415,5 +456,18 @@ bootMock.published.game_mode = { enabled = true, suspended = {} }
 dofile("gamer-mode/monitor.luau")
 assert(bootMock.updateIntervalMs == 33, "always arms at load when gamer mode is already on")
 assert(bootBar.rendered ~= nil, "the already-enabled widget still renders at load")
+
+local invalidBar = {}
+_G.barWidget = {
+    render = function(tree) invalidBar.rendered = tree end,
+    setTooltip = function(value) invalidBar.tooltip = value end,
+    isVertical = function() return false end,
+}
+local invalidMock = helpers.newNoctalia()
+invalidMock.published.metrics = "unknown"
+invalidMock.published.game_mode = 42
+local loaded = pcall(dofile, "gamer-mode/monitor.luau")
+assert(loaded, "unknown initial state must not take down the bar")
+assert(invalidBar.rendered ~= nil and type(invalidBar.tooltip) == "table", "unknown state renders loading rows")
 
 print("monitor: passed")
