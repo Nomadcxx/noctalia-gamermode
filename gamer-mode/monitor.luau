@@ -25,7 +25,7 @@ local FLARE_INTERVAL_MS = 33
 local FLARE_DURATION_MS = 900
 
 local FLAME_COLUMNS = 28
-local FLAME_HEIGHT = 12
+local FLAME_HEIGHT = 6
 -- Embers stay alive at idle so the pill still reads as lit.
 local HEAT_FLOOR = 0.12
 
@@ -47,8 +47,12 @@ local metrics = type(initialMetrics) == "table" and initialMetrics or { availabl
 local gameMode = type(initialGameMode) == "table" and initialGameMode or { enabled = false, suspended = {} }
 local nonceCounter = 0
 local flameField = {}
+-- Rendered in the band slot when nothing is burning. Without it the live field would
+-- freeze mid-flame the moment a flare ended and sit there as a static fire.
+local coldField = {}
 for i = 1, FLAME_COLUMNS do
     flameField[i] = 0
+    coldField[i] = 0
 end
 local flareStartedMs = nil
 local wasEnabled = gameMode.enabled == true
@@ -350,8 +354,8 @@ end
 
 local function pillProps(config, gm, vertical, burning)
     local props = vertical
-            and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = PILL_RADIUS }
-            or { align = "stretch", gap = 1, paddingH = 6, paddingV = 3, radius = PILL_RADIUS }
+            and { align = "center", gap = 2, paddingH = 3, paddingV = 4, radius = PILL_RADIUS }
+            or { align = "stretch", gap = 0, paddingH = 8, paddingV = 1, radius = PILL_RADIUS }
     if config.highlight_gamer_mode and gm and gm.enabled then
         props.fill = pillFill(burning)
     end
@@ -394,21 +398,40 @@ function M.buildTree(m, gm, config, vertical, burning)
         current[#current + 1] = segmentNode(segment, config.show_glyphs)
     end
 
+    -- A row paints its fill behind its own children, and every group is a row. That is
+    -- the only way to get heat *behind* the digits in a tree with no z-order, and it
+    -- costs nothing: the nodes already exist, only their fill changes.
     local children = {}
-    for _, group in ipairs(groups) do
-        children[#children + 1] = ui.row({ align = "center", gap = 6 }, group)
+    for index, group in ipairs(groups) do
+        local props = { align = "center", gap = 6 }
+        if burning ~= nil and #groups > 0 then
+            local column = math.max(1, math.min(FLAME_COLUMNS,
+                math.floor((index - 0.5) / #groups * FLAME_COLUMNS) + 1))
+            local local_heat = math.max(0, math.min(1, (flameField[column] or 0) * burning))
+            props.fill = string.format("#ff7a1a%02x", math.floor(0x10 + local_heat * 0x50))
+            props.radius = 6
+        end
+        children[#children + 1] = ui.row(props, group)
     end
 
     -- A column, not a row: Task 5 appends the flame band underneath these groups, and
     -- the pill's fill and padding belong to the container that holds both.
     local props = pillProps(config, gm, false, burning)
     local lit = config.highlight_gamer_mode and gm and gm.enabled
+    local banded = lit and config.flame ~= "off"
 
-    local stack = { ui.row({ align = "center", gap = 12 }, children) }
+    -- The band lives below the digits, so the same height is reserved above them: the
+    -- text sits centred in the capsule, and the widget is one height in every state.
+    -- Reserving it unconditionally is what stops the bar reflowing when gamer mode is
+    -- switched or a flare ends.
+    local stack = { ui.spacer({ height = FLAME_HEIGHT }) }
+    stack[#stack + 1] = ui.row({ align = "center", gap = 12 }, children)
     -- Absent, not flat: a band drawn at zero height is still a node to reconcile, and it
     -- reads as a dead strip under the numbers.
-    if lit and burning ~= nil then
-        stack[#stack + 1] = M.flameBand(flameField, config.flame_style)
+    if banded then
+        stack[#stack + 1] = M.flameBand(burning ~= nil and flameField or coldField, config.flame_style)
+    else
+        stack[#stack + 1] = ui.spacer({ height = FLAME_HEIGHT })
     end
     return ui.column(props, stack)
 end

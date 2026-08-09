@@ -167,11 +167,13 @@ end
 local defaults = monitor.readConfig()
 local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaults)
 
--- The root is a column so the flame band of Task 5 has somewhere to go. Its first child
--- is the row of groups; nothing else is in it until something is burning.
+-- The root is a column: a reserved space, the row of groups, then the flame band (or the
+-- space it will occupy). Three children in every state, so the widget is one height and
+-- the bar never reflows when gamer mode is switched.
 assert(tree.kind == "column", "the readout root is a column, got " .. tostring(tree.kind))
-assert(#tree.children == 1, "only the segment row until a flame is lit, got " .. #tree.children)
-local segmentRow = tree.children[1]
+assert(#tree.children == 3, "reserved space, segments, band slot, got " .. #tree.children)
+local segmentRow = tree.children[2]
+assert(tree.children[1].kind == "spacer", "space above the digits balances the band below")
 assert(segmentRow.kind == "row", "the segments live in a row, got " .. tostring(segmentRow.kind))
 assert(#segmentRow.children == 4, "cpu, mem, gpu and net form four groups, got " .. #segmentRow.children)
 
@@ -300,18 +302,27 @@ assert(defaultsFlame.flame == "flare", "flare by default")
 assert(defaultsFlame.flame_style == "graph", "graph by default")
 
 local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
-assert(#litTree.children == 2, "the band joins the segment row, got " .. #litTree.children)
-assert(litTree.children[2].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+assert(litTree.children[3].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[3].kind))
 assert(litTree.spec.align == "stretch", "the column stretches the graph to the readout width")
 
 local barsConfig = helpers.copy(defaultsFlame)
 barsConfig.flame_style = "bars"
 local barsTree = monitor.buildTree(FULL, on, barsConfig, false, 0.8)
-assert(barsTree.children[2].kind == "row", "bars style renders a row of boxes")
-assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.children[2].children)
+assert(barsTree.children[3].kind == "row", "bars style renders a row of boxes")
+assert(#barsTree.children[3].children == 28, "28 columns, got " .. #barsTree.children[3].children)
 
--- No band when nothing is burning: absent, not flat.
-assert(#monitor.buildTree(FULL, on, defaultsFlame, false, nil).children == 1, "no band when not burning")
+-- The slot is always there, but it only carries fire when something is burning.
+local restingTree = monitor.buildTree(FULL, on, defaultsFlame, false, nil)
+assert(restingTree.children[3].kind == "graph", "the band slot holds its height while resting")
+for _, v in ipairs(restingTree.children[3].spec.values or {}) do
+    assert(v == 0, "a resting band carries no heat, got " .. tostring(v))
+end
+assert(monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children[3].kind == "spacer",
+    "gamer mode off leaves a plain spacer, not a band")
+local flameOff = helpers.copy(defaultsFlame)
+flameOff.flame = "off"
+assert(monitor.buildTree(FULL, on, flameOff, false, 0.8).children[3].kind == "spacer",
+    "flame off leaves a plain spacer")
 
 -- The capsule is a stadium, matching what Noctalia frames its own bar widgets with:
 -- resolvedBarCapsuleRadius is min(width, height) * 0.5, so ask past any bar height and
@@ -327,7 +338,6 @@ local warmLow = monitor.buildTree(FULL, on, defaultsFlame, false, 0.2).spec.fill
 local warmHigh = monitor.buildTree(FULL, on, defaultsFlame, false, 0.95).spec.fill
 assert(warmLow:sub(1, 1) == "#" and warmHigh:sub(1, 1) == "#", "burning uses a fixed ember, not a role")
 assert(warmHigh > warmLow, "hotter means a stronger ember, got " .. warmLow .. " then " .. warmHigh)
-assert(#monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children == 1, "no band when gamer mode is off")
 
 -- A vertical bar has no horizontal room for it.
 assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
