@@ -312,6 +312,21 @@ assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.chi
 
 -- No band when nothing is burning: absent, not flat.
 assert(#monitor.buildTree(FULL, on, defaultsFlame, false, nil).children == 1, "no band when not burning")
+
+-- The capsule is a stadium, matching what Noctalia frames its own bar widgets with:
+-- resolvedBarCapsuleRadius is min(width, height) * 0.5, so ask past any bar height and
+-- let the renderer clamp.
+assert(litTree.spec.radius >= 999, "the pill is a stadium, got radius " .. tostring(litTree.spec.radius))
+assert(monitor.buildTree(FULL, on, defaultsFlame, true, nil).spec.radius >= 999, "vertical is a stadium too")
+
+-- A 12px band alone is easy to miss, so the capsule warms as well. Resting stays on the
+-- theme role; burning goes to ember and deepens with heat.
+assert(monitor.buildTree(FULL, on, defaultsFlame, false, nil).spec.fill == "primary/0.15",
+    "resting keeps the theme tint")
+local warmLow = monitor.buildTree(FULL, on, defaultsFlame, false, 0.2).spec.fill
+local warmHigh = monitor.buildTree(FULL, on, defaultsFlame, false, 0.95).spec.fill
+assert(warmLow:sub(1, 1) == "#" and warmHigh:sub(1, 1) == "#", "burning uses a fixed ember, not a role")
+assert(warmHigh > warmLow, "hotter means a stronger ember, got " .. warmLow .. " then " .. warmHigh)
 assert(#monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children == 1, "no band when gamer mode is off")
 
 -- A vertical bar has no horizontal room for it.

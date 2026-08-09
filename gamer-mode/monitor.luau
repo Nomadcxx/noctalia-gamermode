@@ -12,6 +12,11 @@ local MIB_PER_GIB = 1024
 local PLACEHOLDER = "—"
 -- A role with an alpha suffix rather than a hex value, so the tint follows the theme.
 local PILL_FILL = "primary/0.15"
+-- Noctalia frames its own bar widgets with a stadium: resolvedBarCapsuleRadius is
+-- min(width, height) * 0.5 (shell widget.cpp). Ask for more than any bar is tall and the
+-- renderer clamps to that same half-height, so the pill matches the built-in capsules
+-- instead of guessing a corner size.
+local PILL_RADIUS = 999
 
 -- The readout is driven by state.watch, so the tick only exists for animation. It cannot
 -- be switched off, so idle is slowed from the 250ms default instead.
@@ -20,7 +25,7 @@ local FLARE_INTERVAL_MS = 33
 local FLARE_DURATION_MS = 900
 
 local FLAME_COLUMNS = 28
-local FLAME_HEIGHT = 6
+local FLAME_HEIGHT = 12
 -- Embers stay alive at idle so the pill still reads as lit.
 local HEAT_FLOOR = 0.12
 
@@ -294,7 +299,7 @@ function M.flameBand(field, style)
             values2 = inner,
             color = "#ff6a00",
             color2 = "#ffd27a",
-            fillOpacity = 0.9,
+            fillOpacity = 1.0,
             height = FLAME_HEIGHT,
             flexGrow = 1,
         })
@@ -332,12 +337,23 @@ end
 -- The pill belongs to whichever root the layout produced. Padding and radius are
 -- unconditional in both orientations: painting the fill must not change the layout, or
 -- every digit shifts the moment gamer mode is toggled.
-local function pillProps(config, gm, vertical)
+-- A 12px band along one edge is easy to miss on a glance at a busy bar. The capsule
+-- itself carries the heat as well, shifting off the theme tint into ember as the machine
+-- works, so a loaded machine is obvious without looking for the flame.
+local function pillFill(burning)
+    if burning == nil then
+        return PILL_FILL
+    end
+    local alpha = math.floor(0x24 + math.max(0, math.min(1, burning)) * 0x5c)
+    return string.format("#ff5a00%02x", alpha)
+end
+
+local function pillProps(config, gm, vertical, burning)
     local props = vertical
-            and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = 8 }
-            or { align = "stretch", gap = 1, paddingH = 6, paddingV = 3, radius = 8 }
+            and { align = "center", gap = 2, paddingH = 3, paddingV = 6, radius = PILL_RADIUS }
+            or { align = "stretch", gap = 1, paddingH = 6, paddingV = 3, radius = PILL_RADIUS }
     if config.highlight_gamer_mode and gm and gm.enabled then
-        props.fill = PILL_FILL
+        props.fill = pillFill(burning)
     end
     return props
 end
@@ -363,7 +379,7 @@ function M.buildTree(m, gm, config, vertical, burning)
             })
             rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
         end
-        return ui.column(pillProps(config, gm, true), rows)
+        return ui.column(pillProps(config, gm, true, nil), rows)
     end
 
     local groups = {}
@@ -385,7 +401,7 @@ function M.buildTree(m, gm, config, vertical, burning)
 
     -- A column, not a row: Task 5 appends the flame band underneath these groups, and
     -- the pill's fill and padding belong to the container that holds both.
-    local props = pillProps(config, gm, false)
+    local props = pillProps(config, gm, false, burning)
     local lit = config.highlight_gamer_mode and gm and gm.enabled
 
     local stack = { ui.row({ align = "center", gap = 12 }, children) }
