@@ -23,6 +23,14 @@
       "label": "Bar icon",
       "description": "Glyph shown on the bar."
     },
+    "icon_file": {
+      "label": "Custom icon",
+      "description": "An SVG or PNG to use instead of the glyph. Edits to the file appear in the bar straight away."
+    },
+    "icon_file_active": {
+      "label": "Custom icon, gamer mode on",
+      "description": "Shown while gamer mode is on. A custom icon cannot be recoloured, so without this the state is only in the tooltip."
+    },
     "click_action": {
       "label": "Left-click action",
       "description": "What left-clicking the bar icon does. Right-click always toggles gamer mode.",

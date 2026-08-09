@@ -17,6 +17,22 @@ description_key = "settings.glyph.description"
 default = "device-gamepad-2"
 
 [[setting]]
+key = "icon_file"
+type = "file"
+label_key = "settings.icon_file.label"
+description_key = "settings.icon_file.description"
+default = ""
+extensions = ["svg", "png"]
+
+[[setting]]
+key = "icon_file_active"
+type = "file"
+label_key = "settings.icon_file_active.label"
+description_key = "settings.icon_file_active.description"
+default = ""
+extensions = ["svg", "png"]
+
+[[setting]]
 key = "click_action"
 type = "select"
 label_key = "settings.click_action.label"

@@ -58,12 +58,38 @@ function M.tooltipRows(m, showTemps, gm)
     return rows
 end
 
+-- Trimmed locally on purpose. The real binding is `noctalia.string.trim`, but the test
+-- harness exposes a top-level `noctalia.trim`, so code written against the mock would
+-- pass the suite and fail in the shell. A Lua pattern depends on neither.
+local function trimmed(value)
+    return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function iconFile()
+    local resting = trimmed(noctalia.getConfig("icon_file"))
+    if resting == "" then
+        return nil
+    end
+    if gameMode.enabled then
+        local active = trimmed(noctalia.getConfig("icon_file_active"))
+        if active ~= "" then
+            return active
+        end
+    end
+    return resting
+end
+
 local function render()
-    barWidget.setGlyph(noctalia.getConfig("glyph") or "device-gamepad-2")
+    local icon = iconFile()
+    if icon then
+        -- watch = true, so editing the file updates the bar without a reload. An image
+        -- cannot be tinted, which is what icon_file_active exists to work around.
+        barWidget.setImage(icon, true, 18)
+    else
+        barWidget.setGlyph(noctalia.getConfig("glyph") or "device-gamepad-2")
+        barWidget.setGlyphColor(gameMode.enabled and "primary" or "on_surface")
+    end
     barWidget.setTooltip(M.tooltipRows(metrics, noctalia.getConfig("show_temps") ~= false, gameMode))
-    -- Accent the glyph while gamer mode is on, so the bar shows the state at a glance
-    -- without needing the tooltip.
-    barWidget.setGlyphColor(gameMode.enabled and "primary" or "on_surface")
 end
 
 local function sendCommand(action)

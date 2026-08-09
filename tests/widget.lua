@@ -6,6 +6,11 @@ local bar = { glyph = nil, tooltip = nil, glyphColor = nil }
 _G.barWidget = {
     setGlyph = function(value)
         bar.glyph = value
+        bar.image = nil
+    end,
+    setImage = function(path, watch, size)
+        bar.image = { path = path, watch = watch, size = size }
+        bar.glyph = nil
     end,
     setTooltip = function(value)
         bar.tooltip = value
@@ -163,5 +168,35 @@ assert(mock.published.command.nonce > afterLeft, "right-click after left-click u
 mock.config.glyph = "flame"
 onConfigChanged()
 assert(bar.glyph == "flame", "glyph updated on config change")
+
+-- ── custom icons ──
+
+-- A glyph by default, so nothing changes for anyone who has not set a file.
+assert(bar.glyph ~= nil and bar.image == nil, "glyph by default")
+
+mock.config.icon_file = "~/.config/noctalia/flame.svg"
+onConfigChanged()
+assert(bar.image ~= nil, "a configured icon file replaces the glyph")
+assert(bar.image.path == "~/.config/noctalia/flame.svg", "the path is passed through unexpanded")
+assert(bar.image.watch == true, "watch is on, so editing the file updates the bar")
+assert(bar.glyph == nil, "the glyph is cleared")
+
+-- setGlyphColor cannot tint an image, so an active icon carries the state instead.
+mock.config.icon_file_active = "~/.config/noctalia/flame-on.svg"
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(bar.image.path == "~/.config/noctalia/flame-on.svg", "the active icon shows while gamer mode is on")
+
+mock.state.set("game_mode", { enabled = false, suspended = {} })
+assert(bar.image.path == "~/.config/noctalia/flame.svg", "back to the resting icon")
+
+-- Falls back rather than blanking the bar when only the resting icon is set.
+mock.config.icon_file_active = nil
+mock.state.set("game_mode", { enabled = true, suspended = {} })
+assert(bar.image.path == "~/.config/noctalia/flame.svg", "the resting icon covers both states when it is the only one")
+
+-- Clearing the setting returns to the glyph.
+mock.config.icon_file = nil
+onConfigChanged()
+assert(bar.glyph ~= nil and bar.image == nil, "clearing the file restores the glyph")
 
 print("widget: passed")
