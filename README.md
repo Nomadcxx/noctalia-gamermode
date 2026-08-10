@@ -1,6 +1,8 @@
-<img src="gamer-mode/logo.svg" width="96" alt="">
-
-# gamer-mode
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/wordmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/wordmark-light.svg">
+  <img src="docs/images/wordmark-dark.svg" width="420" alt="gamer-mode">
+</picture>
 
 Show live CPU, RAM, and GPU numbers in the bar. Suspend background resource hogs
 with one click, then restore what was running before.
@@ -10,8 +12,13 @@ with one click, then restore what was running before.
 
 <img src="docs/images/panel.webp" width="380" alt="The panel with gamer mode running, showing four suspended targets">
 
-The panel with gamer mode running under load: CPU and GPU past their thresholds,
-the mark ringed by its halo, four targets suspended.
+The panel under load. CPU and GPU sit past their thresholds so their bars have
+warmed, a halo rings the mark, and four targets are suspended.
+
+<img src="docs/images/monitor.webp" width="620" alt="The monitor widget with gamer mode off above and running below">
+
+The monitor widget on the bar: gamer mode off above, running below with the flame
+lit under the readings.
 
 Metrics come from the shell's own system monitor, which reads NVIDIA cards
 through NVML in process. The plugin spawns nothing per poll, and AMD and Intel
@@ -26,8 +33,8 @@ GPUs work wherever the shell reports them.
 - `docker` handles container targets
 - `powerprofilesctl` from power-profiles-daemon switches the power profile
 
-Each tool matters only if you target that kind. A missing tool disables the
-matching feature and writes a log line.
+Each tool matters only if you target that kind. Miss one and the plugin disables
+that feature and writes a log line.
 
 ## Install
 

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 128" width="560" height="128" role="img" aria-label="gamer-mode">
+  <title>gamer-mode</title>
+  <defs>
+    <linearGradient id="wmBodyLight" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#8C1408"/>
+      <stop offset="0.45" stop-color="#D24A05"/>
+      <stop offset="1" stop-color="#E89100"/>
+    </linearGradient>
+    <linearGradient id="wmCoreLight" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#E08A00"/>
+      <stop offset="1" stop-color="#FFD867"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(12 16) scale(1.5)">
+    <path fill="url(#wmBodyLight)" d="M32 4 C 38 18, 50 24, 50 38 A 18 18 0 0 1 14 38 C 14 27, 22 24, 24 14 C 29 19, 30 27, 28 33 C 31 28, 33 16, 32 4 Z"/>
+    <path fill="url(#wmCoreLight)" d="M32 30 C 36 36, 40 39, 40 44 A 8 8 0 0 1 24 44 C 24 39, 29 36, 32 30 Z"/>
+  </g>
+  <text x="128" y="70" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.5" fill="#171A2B">gamer-mode</text>
+  <text x="130" y="98" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="500" letter-spacing="0.5" fill="#5A5F7D">Live metrics in the bar. One click of quiet.</text>
+</svg>
