@@ -172,7 +172,7 @@ without a shell:
 | Behaviour | Assertion |
 | --- | --- |
 | Envelope ignites | intensity at 0ms < intensity at 150ms |
-| Envelope decays ease-out | intensity at 300ms > linear at 300ms; 0 at 900ms |
+| Envelope decays ease-out | slope flattens: the drop over 150->300ms exceeds the drop over 750->900ms; exactly 0 at 900ms |
 | Advection moves heat | a single seed's peak index shifts across steps |
 | Edges do not wrap | heat at index 1 does not appear at index N |
 | Seeds persist | a seed injects across more than one step |
