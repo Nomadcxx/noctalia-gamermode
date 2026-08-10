@@ -215,17 +215,28 @@ assert(edge[28] < 0.02,
     "heat at the near edge does not wrap to the far one, got " .. tostring(edge[28]))
 
 -- Seeds persist across frames rather than being one-frame spikes, so a tongue has
--- continuity. With heat on, some column stays lit for several consecutive steps.
+-- continuity. The measurement has to be per column and at LOW heat. At high heat the
+-- band saturates and stays lit whatever the injection model, so a band-wide peak cannot
+-- tell the two apart -- an earlier draft of this test scored 59 out of 60 frames and
+-- would have passed against the old one-frame-spark model too. Measured against that
+-- model as a control, this run is 9 frames with persistent seeds and 2 without.
 monitor.resetFlame()
+math.randomseed(4242)
 local lit = newField()
-local streak, best = 0, 0
-for _ = 1, 60 do
-    monitor.stepFlame(lit, 0.9, 33)
-    local _, top = peakIndex(lit)
-    if top > 0.25 then streak = streak + 1 else streak = 0 end
-    if streak > best then best = streak end
+local runs, longest = {}, 0
+for i = 1, 28 do runs[i] = 0 end
+for _ = 1, 120 do
+    monitor.stepFlame(lit, 0.15, 33)
+    for i = 1, 28 do
+        if lit[i] > 0.30 then
+            runs[i] = runs[i] + 1
+            if runs[i] > longest then longest = runs[i] end
+        else
+            runs[i] = 0
+        end
+    end
 end
-assert(best >= 5, "tongues persist across frames, longest run " .. tostring(best))
+assert(longest >= 6, "a tongue holds its column for several frames, longest " .. tostring(longest))
 
 -- The field is a normalised heightfield. Anything outside 0..1 is a renderer bug waiting
 -- to happen, and the sharpening step is the easiest way to introduce one.
@@ -370,7 +381,11 @@ end
 Run: `./run-tests.sh 2>&1 | tail -5`
 Expected: `all tests passed`.
 
-If the persistence assertion fails, raise `seed.life`'s floor; if the burnout assertion fails, lower it. Do not weaken either assertion to fit the model.
+If the persistence assertion fails, raise `seed.life`'s floor. If the *burnout* assertion
+fails, do **not** touch `seed.life` — `stepFlame` returns on `heat <= 0` before the seed
+loop ever runs, so seeds cannot affect burnout. Burnout is governed by `decay` and the
+blur weights (which sum to 0.98, below 1, so the field is contractive). Do not weaken
+either assertion to fit the model.
 
 - [ ] **Step 5: Commit**
 
@@ -669,7 +684,10 @@ assert(alpha >= 0.80, "the tint floor keeps the value present, got " .. tostring
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `./run-tests.sh 2>&1 | tail -5`
-Expected: FAIL — `the tint floor keeps the value present, got 0.57` (or a nearby value).
+Expected: FAIL — `the tint floor keeps the value present, got 0.67`.
+
+(At `cpuPerc = 0.51` the tint is `0.25 + 0.75 * (0.01 / 0.40) = 0.26875`, so the old floor
+gives `0.55 + 0.45 * 0.26875 = 0.6709`, formatted `error/0.67`.)
 
 - [ ] **Step 3: Write the implementation**
 
@@ -720,7 +738,7 @@ Every panel bar is `primary` whatever the reading, which now contradicts the bar
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/panel.lua`, before its handler-wiring section:
+Append at the **end** of `tests/panel.lua`. Every panel block in this plan appends at the end, after the existing handler-wiring section, so `rendered` and `flatten` are already defined and populated:
 
 ```lua
 -- ── threshold tinting ──
@@ -734,6 +752,11 @@ local onset = p.gradientFactor(0.51, 0.50, 0.90)
 assert(onset >= 0.25 and onset < 0.30,
     "crossing jumps to the onset tint, got " .. tostring(onset))
 assert(p.gradientFactor(nil, 0.50, 0.90) == 0, "no reading is not a hot reading")
+-- Pin the interior slope too. The onset band alone also passes for a wrong denominator,
+-- so a broken ramp would ship green. Tolerance rather than equality: 0.70 - 0.50 is not
+-- bit-equal to 0.2 in double precision.
+assert(math.abs(p.gradientFactor(0.70, 0.50, 0.90) - 0.625) < 1e-9,
+    "the ramp is linear between the thresholds, got " .. tostring(p.gradientFactor(0.70, 0.50, 0.90)))
 
 -- Every row heats on its own progress value, which is already the fraction the bar draws.
 local cool = p.buildRows({
@@ -753,6 +776,21 @@ assert(string.match(fill, "^error/"), "a critical row warms to error, got " .. f
 local hotAlpha = tonumber(string.match(fill, "^error/([%d%.]+)$"))
 assert(hotAlpha >= 0.80, "the panel shares the bar's tint floor, got " .. tostring(hotAlpha))
 
+-- The wiring, not just the helper. Asserting only on barFill would let the metricRow edit
+-- be skipped entirely with the suite still green.
+noctalia.state.set("metrics", {
+    available = true, cpuPerc = 0.98, memPerc = 0.10,
+    memUsedMb = 1024, memTotalMb = 32768,
+})
+local sawHotBar = false
+for _, node in ipairs(flatten(rendered)) do
+    if node.kind == "progress" and type(node.spec.fill) == "string"
+        and node.spec.fill:match("^error/") then
+        sawHotBar = true
+    end
+end
+assert(sawHotBar, "a critical reading renders a warmed progress fill")
+
 -- RAM at 60/90, swap at 20/80, gpu at 50/95, vram at 50/90 -- the shell's defaults.
 local all = p.buildRows({
     available = true, cpuPerc = 0.1, memPerc = 0.1,
@@ -765,6 +803,7 @@ local expected = {
     CPU = { 0.50, 0.90 }, RAM = { 0.60, 0.90 }, Swap = { 0.20, 0.80 },
     GPU = { 0.50, 0.95 }, VRAM = { 0.50, 0.90 },
 }
+assert(#all == 5, "all five rows are built, got " .. #all)
 for _, row in ipairs(all) do
     local want = expected[row.label]
     assert(want, "unexpected row " .. tostring(row.label))
@@ -875,7 +914,7 @@ Everything in the panel is `on_surface_variant`, so a reading reads no louder th
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/panel.lua`, after the threshold-tinting block:
+Append at the **end** of `tests/panel.lua`, after the previous task's block:
 
 ```lua
 -- ── hierarchy ──
@@ -983,7 +1022,7 @@ The current mark is three hand-plotted flames that mush together at 42px. Redraw
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/panel.lua`:
+Append at the **end** of `tests/panel.lua`, after the previous task's block:
 
 ```lua
 -- ── the mark ──
@@ -1113,7 +1152,7 @@ Drive the mark's halo from the panel's vsync tick while gamer mode is on, and re
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/panel.lua`:
+Append at the **end** of `tests/panel.lua`, after the previous task's block:
 
 ```lua
 -- ── halo ──
@@ -1128,8 +1167,10 @@ assert(string.match(fierce.border, "^#%x%x%x%x%x%x%x%x$"),
     "the ring carries its own alpha, got " .. tostring(fierce.border))
 
 -- It pulses: the same heat at different points in the cycle differs.
+-- Quadrature, not antiphase: sin(0) and sin(pi) are each ~0, so comparing those two
+-- phases compares identical output and the assertion fails after the change.
 local a = p.haloSpec(0, 0.6)
-local b = p.haloSpec(math.pi, 0.6)
+local b = p.haloSpec(math.pi / 2, 0.6)
 assert(a.border ~= b.border or a.borderWidth ~= b.borderWidth,
     "the halo animates across the phase")
 
@@ -1215,12 +1256,13 @@ local function header()
     local logo = logoPath()
     local mark
     if logo then
-        local props = { path = logo, width = 42, height = 42, fit = "contain" }
+        -- radius is set unconditionally: putting it inside the branch would pop the mark
+        -- between square and circular every time the mode is toggled.
+        local props = { path = logo, width = 42, height = 42, fit = "contain", radius = 21 }
         if gameMode.enabled then
             local halo = M.haloSpec(haloPhase, heatOf(metrics))
             props.border = halo.border
             props.borderWidth = halo.borderWidth
-            props.radius = 21
         end
         mark = ui.image(props)
     else
@@ -1260,6 +1302,16 @@ end
 ```
 
 In the `game_mode` watcher, add `syncFrameTick()` immediately before its `render()` call.
+
+Watchers fire on *change*, so that alone leaves the halo frozen when the panel is opened
+while gamer mode is already on — the common case. Call it from `onOpen` too, immediately
+after its existing `render()`:
+
+```lua
+    syncFrameTick()
+```
+
+If `onOpen` is not present in `panel.luau`, add the same line at the end of `onActivate`.
 
 Add the global at the bottom of the file, beside the other shell entry points:
 
@@ -1305,7 +1357,7 @@ A soft accent under the header that breathes while the mode is on, so the panel 
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/panel.lua`:
+Append at the **end** of `tests/panel.lua`, after the previous task's block:
 
 ```lua
 -- ── header ember ──
@@ -1314,13 +1366,19 @@ local dim = p.emberSpec(0, 0)
 local bright = p.emberSpec(0, 1)
 assert(bright.opacity > dim.opacity, "more heat means a brighter ember")
 assert(bright.softness > 0, "the ember has a soft edge, not a hard rule")
-assert(p.emberSpec(0, 0.5).opacity ~= p.emberSpec(math.pi, 0.5).opacity,
+-- Quadrature for the same reason as the halo: sin(0) == sin(pi) ~= a different pulse.
+assert(p.emberSpec(0, 0.5).opacity ~= p.emberSpec(math.pi / 2, 0.5).opacity,
     "the ember breathes across the phase")
+-- The opacity is clamped in the implementation, so asserting 0..1 could never fail.
+-- Assert the useful property instead: it actually varies across the cycle rather than
+-- sitting at one value.
+local seen = {}
 for _, phase in ipairs({ 0, 1, 2, 3, 4, 5, 6 }) do
-    local spec = p.emberSpec(phase, 1)
-    assert(spec.opacity >= 0 and spec.opacity <= 1,
-        "opacity stays in range at phase " .. phase .. ", got " .. tostring(spec.opacity))
+    seen[string.format("%.4f", p.emberSpec(phase, 1).opacity)] = true
 end
+local distinct = 0
+for _ in pairs(seen) do distinct = distinct + 1 end
+assert(distinct >= 4, "the ember takes several values across a cycle, got " .. distinct)
 
 -- It is only drawn while the mode is on; an idle panel is a plain form.
 local function countBoxes(node)
@@ -1329,10 +1387,25 @@ local function countBoxes(node)
     for _, child in ipairs(node.children or {}) do n = n + countBoxes(child) end
     return n
 end
+-- Counting boxes alone would also count anything else the enabled state adds, so match
+-- the ember's own fill. That is what makes this fail if the ember specifically is gone.
+local function hasEmber(node)
+    if type(node) ~= "table" then return false end
+    if node.kind == "box" and node.spec and node.spec.softness ~= nil
+        and type(node.spec.fill) == "string" and node.spec.fill:match("^#ff%x%x%x%x$") then
+        return true
+    end
+    for _, child in ipairs(node.children or {}) do
+        if hasEmber(child) then return true end
+    end
+    return false
+end
 noctalia.state.set("game_mode", { enabled = false, busy = false, suspended = {} })
+assert(not hasEmber(rendered), "an idle panel has no ember")
 local quiet = countBoxes(rendered)
 noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} })
-assert(countBoxes(rendered) > quiet, "gamer mode adds the ember")
+assert(hasEmber(rendered), "gamer mode adds the ember")
+assert(countBoxes(rendered) > quiet, "and it is a new node, not a recoloured one")
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
