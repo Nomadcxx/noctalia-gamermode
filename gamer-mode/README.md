@@ -117,8 +117,15 @@ the built-in `sysmon` widgets warms in step with them.
 | Icons | On | Places a glyph beside each reading. Turn it off for numbers only. |
 | Reserved value width | `0` | Pixels held for each reading. Zero lets values hug their text. |
 | Highlight while gamer mode is on | On | Adds the flame band under the readings. |
+| Flame height | `10` | How tall the flame band is, in pixels (4-16). Lower it on a thin bar, where a tall band leaves the readout no room. |
 | Flame | `flare` | `off`, a 900 ms `flare`, or `always`. |
 | Flame style | `graph` | One graph node, or 28 sharper `bars`. |
+
+While the flame is enabled the band's slot is held open whether or not it is
+burning, so toggling gamer mode never shifts the digits. The cost is that the
+readout sits half the band height above the capsule's centre; lower **Flame
+height** to reduce it, or set **Flame** to `off` for a readout centred exactly
+like a plain sysmon row.
 
 `always` holds the widget at about 30 frames per second while gamer mode runs.
 Noctalia keeps widget timers running when another window covers the bar, so

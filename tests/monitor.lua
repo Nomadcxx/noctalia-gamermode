@@ -191,8 +191,13 @@ local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaul
 -- With no band to carry, the root is the readout row itself -- the same shape the shell's
 -- own sysmon widgets build (a row of glyph/label pairs), and no wrapper for the
 -- reconciler to walk.
-assert(tree.kind == "row", "an unlit readout is just the row, got " .. tostring(tree.kind))
-assert(#tree.children == 4, "cpu, mem, gpu and net form four groups, got " .. #tree.children)
+-- The band's slot is reserved whenever the flame is enabled, lit or not, so the digits do
+-- not move when gamer mode is toggled. The readout is the column's first child.
+assert(tree.kind == "column", "an unlit readout still reserves the band, got " .. tostring(tree.kind))
+assert(#tree.children == 2, "readout and reserved band, got " .. #tree.children)
+assert(tree.children[1].kind == "row", "the readout is the first child")
+assert(#tree.children[1].children == 4,
+    "cpu, mem, gpu and net form four groups, got " .. #tree.children[1].children)
 
 -- Nothing paints a background. The bar draws the capsule when `capsule = true`; a fill
 -- of our own would sit inside it as a visible box around every cluster.
@@ -282,7 +287,8 @@ local dark = monitor.buildTree(FULL, off, defaults)
 assert(lit.kind == "column", "a lit readout wraps the row and the band, got " .. tostring(lit.kind))
 assert(#lit.children == 2, "readout and band, got " .. #lit.children)
 assert(lit.children[1].kind == "row", "the readout stays a row inside the column")
-assert(#lit.children[1].children == #dark.children, "the same groups in both states")
+assert(#lit.children[1].children == #dark.children[1].children,
+    "the same groups whether lit or not")
 assert(#fillsIn(lit) == 0, "lit paints no boxes either, got " .. #fillsIn(lit))
 
 -- Both conditions, not either.
@@ -386,9 +392,13 @@ for _, v in ipairs(restingTree.children[2].spec.values or {}) do
     assert(v == 0, "a resting band carries no heat, got " .. tostring(v))
 end
 
--- Unlit, there is no band and so no column at all.
-assert(monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).kind == "row",
-    "gamer mode off is a plain readout")
+-- Unlit the slot is still there, and it is empty. This is what stops the readout settling
+-- when gamer mode comes on.
+local reserved = monitor.buildTree(FULL, off, defaultsFlame, false, 0.8)
+assert(reserved.kind == "column", "gamer mode off still reserves the slot")
+for _, v in ipairs(reserved.children[2].spec.values or {}) do
+    assert(v == 0, "the reserved band carries no heat, got " .. tostring(v))
+end
 local flameOff = helpers.copy(defaultsFlame)
 flameOff.flame = "off"
 assert(monitor.buildTree(FULL, on, flameOff, false, 0.8).kind == "row",
@@ -522,6 +532,39 @@ for _ = 1, 200 do
 end
 local _, remaining = peakIndex(dying)
 assert(remaining < 0.02, "the field burns out with no heat, got " .. tostring(remaining))
+
+-- ── band height ──
+
+assert(monitor.readConfig().flame_height == 10, "the band is 10px by default")
+
+-- A plugin cannot ask the shell how thick the bar is, so the height has to be a setting
+-- and it has to be clamped.
+mock.config.flame_height = 2
+assert(monitor.readConfig().flame_height == 4, "too small clamps up to 4")
+mock.config.flame_height = 99
+assert(monitor.readConfig().flame_height == 16, "too large clamps down to 16")
+mock.config.flame_height = "nonsense"
+assert(monitor.readConfig().flame_height == 10, "unparseable falls back to the default")
+
+mock.config.flame_height = 12
+local tallConfig = monitor.readConfig()
+local tall = monitor.buildTree(FULL, on, tallConfig, false, 0.8)
+assert(tall.children[2].spec.height == 12,
+    "the band honours the setting, got " .. tostring(tall.children[2].spec.height))
+
+tallConfig.flame_style = "bars"
+local tallBars = monitor.buildTree(FULL, on, tallConfig, false, 0.8)
+assert(tallBars.children[2].spec.height == 12, "bars style honours it too")
+mock.config.flame_height = nil
+
+-- A vertical bar is ~26px wide and the readout stacks glyph over value, so the flame is
+-- suppressed there entirely. The reservation must not follow it.
+local verticalTree = monitor.buildTree(FULL, on, monitor.readConfig(), true, 0.8)
+assert(verticalTree.kind == "column", "a vertical readout still stacks")
+for _, child in ipairs(verticalTree.children) do
+    assert(child.kind == "column",
+        "a vertical stack holds only segment cells, found " .. tostring(child.kind))
+end
 
 -- ── intervals ──
 

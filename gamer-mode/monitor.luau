@@ -30,7 +30,13 @@ local FLAME_COLUMNS = 28
 -- The shell's capsule is capsule_thickness (0.76 by default) of the bar -- about 26px on
 -- a 34px bar -- and the digits take ~17 of that. Six leaves the band room to burn while
 -- the readout still fits, which matters because the bar clips its slots.
-local FLAME_HEIGHT = 6
+-- The band's height in pixels. A plugin cannot read the bar's thickness -- barWidget
+-- exposes only isVertical and outputName -- so this cannot be derived and has to be a
+-- setting. The default fits a 42px bar (33px capsule) and a 34px bar (30px capsule) over
+-- ~17px of digits; a thinner bar needs a smaller band or the slot clips.
+local FLAME_HEIGHT_DEFAULT = 10
+local FLAME_HEIGHT_MIN = 4
+local FLAME_HEIGHT_MAX = 16
 -- Embers stay alive at idle so the band still reads as lit.
 local HEAT_FLOOR = 0.12
 
@@ -183,6 +189,10 @@ function M.readConfig()
         -- value hugs its text. Reserving width for the widest value a metric can reach
         -- is what made this readout permanently as wide as a saturated network link.
         label_min_width = math.max(0, tonumber(noctalia.getConfig("label_min_width")) or 0),
+        flame_height = (function()
+            local value = tonumber(noctalia.getConfig("flame_height")) or FLAME_HEIGHT_DEFAULT
+            return math.max(FLAME_HEIGHT_MIN, math.min(FLAME_HEIGHT_MAX, math.floor(value)))
+        end)(),
     }
 end
 
@@ -406,7 +416,8 @@ end
 
 -- graph is one node whatever the width. bars draws a box per column, which looks crisper
 -- close up and costs 28 times as much to reconcile.
-function M.flameBand(field, style)
+function M.flameBand(field, style, height)
+    local band = height or FLAME_HEIGHT_DEFAULT
     if style ~= "bars" then
         local outer, inner = {}, {}
         for i = 1, FLAME_COLUMNS do
@@ -419,7 +430,7 @@ function M.flameBand(field, style)
             color = "#ff6a00",
             color2 = "#ffd27a",
             fillOpacity = 1.0,
-            height = FLAME_HEIGHT,
+            height = band,
         })
     end
 
@@ -427,13 +438,13 @@ function M.flameBand(field, style)
     for i = 1, FLAME_COLUMNS do
         bars[i] = ui.box({
             flexGrow = 1,
-            height = math.max(1, field[i] * FLAME_HEIGHT),
+            height = math.max(1, field[i] * band),
             fill = heatColor(field[i]),
             radius = 1,
         })
     end
     -- align = "end" puts them on a baseline so they grow upward.
-    return ui.row({ align = "end", gap = 1, height = FLAME_HEIGHT }, bars)
+    return ui.row({ align = "end", gap = 1, height = band }, bars)
 end
 
 -- The shell warms a sysmon value from its normal colour towards the highlight colour
@@ -517,19 +528,23 @@ function M.buildTree(m, gm, config, vertical, burning)
     end
     local readout = ui.row({ align = "center", gap = 12 }, children)
 
-    local lit = config.highlight_gamer_mode and gm and gm.enabled
-    if not (lit and config.flame ~= "off") then
-        -- No band, no column: the readout alone is what a sysmon row looks like, and a
-        -- wrapper that holds one child is a node the reconciler still has to walk.
+    -- The slot is reserved whenever the flame could appear, not only while it burns.
+    -- Adding the band on toggle would change the content's height, and the shell centres
+    -- content inside the capsule, so every digit would settle by half the band. A slot
+    -- that is always there costs a constant offset instead, and a constant offset is
+    -- invisible in a way that movement never is.
+    --
+    -- Reserving symmetrically -- a spacer above as well -- would keep the readout centred
+    -- too, but at 2 * flame_height it overflows a 30px capsule and the bar clips its
+    -- slots. That is the regression this widget already shipped once.
+    if not (config.highlight_gamer_mode and config.flame ~= "off") then
         return readout
     end
 
-    -- A ui.* column stretches its children across the cross axis, so the band spans the
-    -- readout's width without asking. Absent rather than flat when unlit: a band drawn at
-    -- zero height still reconciles, and reads as a dead strip under the numbers.
+    local lit = gm and gm.enabled and burning ~= nil
     return ui.column({ gap = 0 }, {
         readout,
-        M.flameBand(burning ~= nil and flameField or coldField, config.flame_style),
+        M.flameBand(lit and flameField or coldField, config.flame_style, config.flame_height),
     })
 end
 

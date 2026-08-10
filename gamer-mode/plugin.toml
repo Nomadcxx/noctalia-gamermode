@@ -182,7 +182,7 @@ label_key = "settings.monitor.label_min_width.label"
 description_key = "settings.monitor.label_min_width.description"
 default = 0
 min = 0
-max = 120
+max = 200
 
 [[widget.setting]]
 key = "highlight_gamer_mode"
@@ -190,6 +190,16 @@ type = "bool"
 label_key = "settings.monitor.highlight_gamer_mode.label"
 description_key = "settings.monitor.highlight_gamer_mode.description"
 default = true
+
+[[widget.setting]]
+key = "flame_height"
+type = "int"
+label_key = "settings.monitor.flame_height.label"
+description_key = "settings.monitor.flame_height.description"
+default = 10
+min = 4
+max = 16
+visible_when = { key = "highlight_gamer_mode", values = ["true"] }
 
 [[widget.setting]]
 key = "flame"
