@@ -590,6 +590,17 @@ local function body()
     local showTemps = noctalia.getConfig("show_temps") ~= false
     local children = {}
 
+    if gameMode.enabled then
+        local ember = M.emberSpec(haloPhase, heatOf(metrics))
+        children[#children + 1] = ui.box({
+            height = 2,
+            radius = 1,
+            fill = ember.fill,
+            opacity = ember.opacity,
+            softness = ember.softness,
+        })
+    end
+
     local rows = M.buildRows(metrics, showTemps)
     if #rows == 0 then
         children[#children + 1] = ui.label({

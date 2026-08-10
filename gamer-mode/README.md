@@ -127,6 +127,17 @@ readout sits half the band height above the capsule's centre; lower **Flame
 height** to reduce it, or set **Flame** to `off` for a readout centred exactly
 like a plain sysmon row.
 
+### While gamer mode is on
+
+The panel mark gains a ring that thickens and warms with real load, and a soft
+ember breathes under the header. Each is driven by the panel's vsync frame tick,
+which the shell stops while the panel is closed, so an idle or closed panel costs
+nothing.
+
+The mark ships as two files, a dark and a light ramp, chosen by the shell's dark
+mode. A plugin cannot read palette colours, so those are a fixed pair rather than
+hues derived from your theme.
+
 `always` holds the widget at about 30 frames per second while gamer mode runs.
 Noctalia keeps widget timers running when another window covers the bar, so
 this setting consumes CPU during play. `flare` returns to a one-second idle tick

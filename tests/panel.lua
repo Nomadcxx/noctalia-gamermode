@@ -463,3 +463,49 @@ noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} }
 rendered = nil
 onFrameTick(16)
 assert(type(rendered) == "table", "a tick re-renders while the mode is on")
+
+-- ── header ember ──
+
+local dim = p.emberSpec(0, 0)
+local bright = p.emberSpec(0, 1)
+assert(bright.opacity > dim.opacity, "more heat means a brighter ember")
+assert(bright.softness > 0, "the ember has a soft edge, not a hard rule")
+-- Quadrature for the same reason as the halo: sin(0) == sin(pi) ~= a different pulse.
+assert(p.emberSpec(0, 0.5).opacity ~= p.emberSpec(math.pi / 2, 0.5).opacity,
+    "the ember breathes across the phase")
+
+-- The opacity is clamped in the implementation, so asserting 0..1 could never fail.
+-- Assert the useful property instead: it actually varies across the cycle.
+local seen = {}
+for _, phase in ipairs({ 0, 1, 2, 3, 4, 5, 6 }) do
+    seen[string.format("%.4f", p.emberSpec(phase, 1).opacity)] = true
+end
+local distinct = 0
+for _ in pairs(seen) do distinct = distinct + 1 end
+assert(distinct >= 4, "the ember takes several values across a cycle, got " .. distinct)
+
+-- Counting boxes alone would also count anything else the enabled state adds, so match
+-- the ember's own fill. That is what makes this fail if the ember specifically is gone.
+local function countBoxes(node)
+    if type(node) ~= "table" then return 0 end
+    local n = (node.kind == "box") and 1 or 0
+    for _, child in ipairs(node.children or {}) do n = n + countBoxes(child) end
+    return n
+end
+local function hasEmber(node)
+    if type(node) ~= "table" then return false end
+    if node.kind == "box" and node.spec and node.spec.softness ~= nil
+        and type(node.spec.fill) == "string" and node.spec.fill:match("^#ff%x%x%x%x$") then
+        return true
+    end
+    for _, child in ipairs(node.children or {}) do
+        if hasEmber(child) then return true end
+    end
+    return false
+end
+noctalia.state.set("game_mode", { enabled = false, busy = false, suspended = {} })
+assert(not hasEmber(rendered), "an idle panel has no ember")
+local quiet = countBoxes(rendered)
+noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} })
+assert(hasEmber(rendered), "gamer mode adds the ember")
+assert(countBoxes(rendered) > quiet, "and it is a new node, not a recoloured one")
