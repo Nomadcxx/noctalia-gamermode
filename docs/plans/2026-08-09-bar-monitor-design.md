@@ -7,6 +7,11 @@ Builds on: `docs/plans/2026-07-30-gamermode-hardening-design.md`, shipped as v0.
 upstream in noctalia-dev/community-plugins#168 on 2026-07-31.
 Ships as: **0.7.0**
 
+> **Revised 2026-08-10, after live testing.** Sections 3 and 5 originally had the widget
+> draw its own pill and reserve a fixed width per metric. Both were wrong, and section
+> "Revision: the shell owns the pill" at the foot of this document records what replaced
+> them and why. Read that before section 3.
+
 ## Problem
 
 The plugin publishes a full metrics sample every poll and spends it on one glyph and a
@@ -50,7 +55,8 @@ B fails on three counts, all verified in `plugin_widget.cpp`:
 2. There is no `render(nil)`. `applyUiTreePatch` hides the imperative row permanently once
    a tree arrives, so a widget that switches between the two modes at runtime is a one-way
    door.
-3. A single label cannot carry the pill, since `fill` belongs to a container.
+3. A single label cannot carry the pill, since `fill` belongs to a container. (Moot in
+   the end — see the revision at the foot: the shell draws the pill, not the widget.)
 
 ## Runtime constraints verified against the noctalia source
 
@@ -64,6 +70,11 @@ Read from `/home/nomadx/noctalia` at `a5aa52499`, against installed `noctalia-gi
 | Bar trees drop only `input`, `select`, `scroll` — `graph` and `progress` are allowed | `plugin_widget.cpp:61` |
 | `fill` and `color` take a role, a `role/alpha` suffix, or `#rrggbb[aa]` | `ui_tree_reconciler.cpp:154`, `render/core/color.h:149` |
 | Flex containers take `minWidth`; labels take `width` and `textAlign`, not `minWidth` | `ui_tree_reconciler.cpp:448` |
+| The **bar** draws the capsule, not the widget: `content + 2 * capsule_padding` by `capsule_thickness * bar thickness`, radius `min(w, h) * 0.5`, content centred | `bar.cpp:929`, `:967` |
+| Plugin widgets get a capsule spec from `[widget.*] capsule*` exactly as native ones do | `bar.cpp:2263` |
+| `height` on a flex sets **both** min and max — children that sum past it overflow into the bar's clip | `ui_tree_reconciler.cpp:1095` |
+| `sysmon` reserves no label width by default (`labelMinWidth = 0`, applied only when positive) | `sysmon_widget.h:53`, `sysmon_widget.cpp:273` |
+| `sysmon` tints value **and** glyph towards a highlight colour over activity/critical thresholds | `sysmon_widget.cpp:76`, `:344` |
 | `setUpdateInterval` clamps to a 16 ms floor, so up to 60 fps | `plugin_widget.cpp:502` |
 | Every plugin bar widget ticks at 250 ms by default, dispatching a global `update()` | `plugin_widget.h:157`, `script_runtime.cpp:992` |
 | Updates defer only during panel transitions — **a covered bar keeps ticking** | `bar.cpp:2384` |
@@ -110,8 +121,9 @@ on    ▓  CPU 12%  45°   GPU 63%  71°   ↓548K ↑854K  ▓
          └── group ──┘  └─── group ───┘  └─ group ─┘
 ```
 
-The readout root is a `ui.column` carrying the pill; its first child is the row of groups,
-and the flame band of section 5 is appended below it when lit. A segment is
+The readout root is the row of groups itself, becoming a `ui.column` of row plus band
+when the flame is lit. (As shipped — the original text had the root be a column carrying
+a pill; see the revision at the foot.) A segment is
 `ui.row{ ui.glyph, ui.label }`, or just the label when `show_glyphs` is off, which is the
 requester's screenshot exactly. Groups are rows of segments with a tight gap; the row's gap
 between groups is wider, which is what makes clusters read as clusters rather than as a run
@@ -127,6 +139,10 @@ borrowed from this plugin's own panel, which already uses it for load average.
 `width` and `textAlign = "right"`. `12%` growing to `100%` shifts nothing, and columns line
 up across refreshes. `minWidth` on the segment row would also work but leaves the digits
 ragged, and labels do not accept `minWidth` anyway.
+
+**Superseded.** Reserving every metric's worst case made the readout permanently as wide
+as a saturated network link. The shell reserves nothing by default and neither does this;
+`label_min_width` is opt-in, on a wrapper flex. See the revision at the foot.
 
 Fixed order:
 
@@ -159,7 +175,7 @@ Per-instance `[[widget.setting]]` on the monitor entry, so two placements can di
 | `flame_style` | select `graph` / `bars` | `graph` |
 
 `flame` carries `visible_when = { key = "highlight_gamer_mode", values = [true] }` so it
-disappears when there is no pill to animate. Defaults reproduce the requester's screenshot
+disappears when there is no flame to animate. Defaults reproduce the requester's screenshot
 minus the segments most people will not want.
 
 The monitor declares no `click_action` of its own. It reads the plugin-level one, so both
@@ -197,9 +213,9 @@ loading string still covers the pre-first-sample case.
 
 ## 5. The flame
 
-`highlight_gamer_mode` paints the readout with `fill = "primary/0.15"`, theme-aware through
-the role rather than a hardcoded hex. **The readout keeps its padding when gamer mode is
-off**, so switching it on paints a pill without moving a digit.
+`highlight_gamer_mode` originally painted the readout with `fill = "primary/0.15"`. As
+shipped it adds the flame band and nothing else — no fill, no padding change, no extra
+segment — so switching it on moves no digit horizontally. See the revision at the foot.
 
 ### The flame is a reading, not an ornament
 
@@ -211,7 +227,7 @@ tempHeat = clamp((max(cpuTemp, gpuTemp) - 50) / 40)  -- what the hardware feels
 heat     = clamp(usage * 0.7 + tempHeat * 0.3)
 ```
 
-A floor of `0.12` keeps embers alive at idle so the pill still reads as lit. Usage leads
+A floor of `0.12` keeps embers alive at idle so the band still reads as lit. Usage leads
 because it is what a player notices; temperature still counts, so a hot card at moderate
 load earns a hot flame. The result is a bar that rages when the machine does — legible
 across the room without reading a number.
@@ -224,10 +240,14 @@ decoration; as a load indicator it is the same class of thing as the numbers bes
 The readout root becomes a `ui.column`:
 
 ```
-column  (pill: fill, radius, padding — all unconditional)
+column
 ├── row      the segment groups
-└── band     the flame, present only while burning
+└── band     the flame
 ```
+
+Unlit there is no column at all — the row of groups is the root, which is the shape a
+`sysmon` readout has. The pill in the original sketch of this block is gone; the bar
+draws it. See the revision at the foot.
 
 The band sits below the text because the tree has no z-order — nothing can be composited
 behind a label. `flame_style` picks how it is drawn:
@@ -278,20 +298,19 @@ defensible price for a live load indicator — but it is still a price, and the 
 opt into it.
 
 A vertical bar gets no band at all. It needs horizontal room, and a ~26 px column has
-none. The pill itself still applies — the tint, radius and padding come from a shared
-`pillProps` used by both roots, so gamer mode looks like gamer mode in either orientation.
+none, so a vertical readout is the same shape whether gamer mode is on or off.
 
 ## 6. Absent data, first sample, vertical bars
 
 Three rules, two inherited from the existing plugin:
 
 1. **Absent metrics are omitted, never zeroed.** No GPU means no GPU group, not `GPU 0%`.
-2. **Before the first sample**, enabled segments render `—` at their final widths, dimmed
-   to `on_surface_variant` so the loading state reads as loading rather than as data, and
-   the bar does not resize a second after login.
+2. **Before the first sample**, every enabled segment renders `—`, dimmed to
+   `on_surface_variant` so the loading state reads as loading rather than as data, and no
+   row appears a second after login. Nothing has been sampled, so nothing is tinted.
 3. **On a vertical bar** (`barWidget.isVertical()`), segments stack one per row as glyph
-   over value, centred, with no width reservation — the horizontal fixed widths would clip
-   in a ~26 px bar. Group gaps collapse.
+   over value, centred, with no width reservation — `label_min_width` is horizontal-only
+   and would clip in a ~26 px bar. Group gaps collapse.
 
 ## 7. Testing
 
@@ -302,9 +321,12 @@ New `tests/monitor.lua`, the 18th suite. The mock gains a `barWidget.render` cap
 |---|---|
 | Segment presence and order follow the toggles | The core contract |
 | No GPU in the sample produces no GPU segments | Rule 1, the honesty rule |
-| Every value label carries an explicit `width` | Jitter regression guard |
-| Pill fill present only when enabled **and** `highlight_gamer_mode` | Two conditions, easy to conflate |
-| Row padding identical on and off | The no-reflow promise |
+| Values carry no `width` by default, and `label_min_width` puts a `minWidth` on a wrapper | Matching the shell's default, and the regression that made the readout worst-case wide |
+| The tree paints no `fill` anywhere, lit or unlit | The per-cluster boxes the user reported |
+| `gradientFactor` is flat below activity, jumps to the onset tint, saturates at critical | It claims to reproduce the shell's curve; this is that claim |
+| Band present only when enabled **and** `highlight_gamer_mode` **and** `flame ~= "off"` | Three conditions, easy to conflate |
+| The band never asks for `flexGrow` | In a column that is vertical growth, into the bar's clip |
+| The same groups in the lit and unlit trees | The band must not disturb the readout |
 | `flame = "flare"` restores the idle interval when the flare ends | A stuck 30 fps loop is the expensive failure |
 | `flame = "off"` never raises the interval | Opt-out actually opts out |
 | `flame = "always"` is armed at load and on config change | No transition edge exists when gamer mode is already on |
@@ -313,6 +335,7 @@ New `tests/monitor.lua`, the 18th suite. The mock gains a `barWidget.render` cap
 | `flame_style` selects graph or bars without changing the segment rows | The fire must not disturb the readout |
 | Vertical layout stacks instead of running horizontally | Rule 3 |
 | Vertical labels carry no width reservation | A ~26 px bar cannot fit the horizontal reservations |
+| A resting band renders a zeroed field, not the live one | Otherwise the field freezes mid-flame when a flare ends |
 | Unknown or missing state renders without erroring | The widget must never take the bar down |
 
 `tests/widget.lua` is updated for tooltip rows. `./run-tests.sh` stays the entry point.
@@ -367,9 +390,10 @@ The plugin merged on 2026-07-31, so this is an update, not a submission.
 - **Audio reactivity.** `plugin_widget.cpp:113` reads an `audio_spectrum` setting and
   forwards PipeWire spectrum frames to `onAudioSpectrum(values, state)`, so an
   audio-reactive flame is buildable. Explicitly declined for this release.
-- **Threshold colouring.** Recolouring values above a limit is deliberately left out; the
-  pill uses a background tint rather than recolouring text precisely so this stays
-  available later without a collision.
+- ~~**Threshold colouring.**~~ Deferred here on the grounds that the pill's background
+  tint would collide with it. With the pill gone there is nothing to collide with, and
+  threshold colouring turned out to be how the shell expresses intensity — so it shipped
+  in this release instead. See the revision at the foot.
 - **Per-core CPU, disk I/O, per-interface network.** Not in the published `metrics` table;
   each would need service work.
 - **Gradient fills.** The renderer has `FillMode::LinearGradient`, but the reconciler only
@@ -379,3 +403,74 @@ The plugin merged on 2026-07-31, so this is an update, not a submission.
   z-order can get to fire under text. Prototyped as a third `flame_style` called `burn` and
   dropped: it adds a fill mutation per group on top of the 28 boxes, for an effect that is
   coarse at one cell per group.
+
+
+## Revision: the shell owns the pill
+
+Live testing killed the pill this design asked the widget to draw. Three complaints, one
+root cause: the design never checked how the shell frames its own bar widgets.
+
+`SysmonWidget::create` builds a `ui::row` of glyph, optional gauge or graph, and label,
+and `doLayout` sizes it to its content (`sysmon_widget.cpp:230`, `:498`). It paints no
+background at all. The pill comes from the bar: `finalizeCapsules` wraps a widget — or a
+run of adjacent widgets sharing a `capsule_group` — in a shell sized `content + 2 *
+capsule_padding` along the main axis and `capsule_thickness * bar thickness` across it,
+radius `min(w, h) * 0.5`, content centred inside (`bar.cpp:929`, `:967`–`:986`). Plugin
+widgets go through the same `createWidget` path as native ones and get
+`setBarCapsuleSpec` from `[widget.*] capsule*` config (`bar.cpp:2263`), so `capsule =
+true` is all this widget ever needed.
+
+Measured on a 42 px bar: the shell's capsule and this widget's now occupy the identical
+rows 5–37, 33 px, matching `round(42 * 0.76)`.
+
+What that fixes, and what the hand-drawn pill had got wrong:
+
+- **Height.** `PILL_HEIGHT = 28` was a guess. A plugin cannot see the bar's thickness or
+  its content scale, so no guess could have been right on a second machine. Worse,
+  `height` on a flex sets both min and max (`ui_tree_reconciler.cpp:1095`), and the
+  children summed past 28, so the flame band was being clamped out of the layout — the
+  "flame stopped appearing" regression.
+- **Radius.** `PILL_RADIUS = 999` leaning on the renderer's clamp was a workaround for a
+  problem the shell does not have.
+- **Vertical centring.** `finalizeCapsules` centres content in the shell. The reserved
+  spacer above the readout is gone with the pill.
+
+Two further corrections, both from reading the reference rather than inventing:
+
+**Reserved widths are opt-in, not the default.** `SysmonWidget::Options::labelMinWidth`
+defaults to `0` and the min-width is applied only when positive (`sysmon_widget.h:53`,
+`sysmon_widget.cpp:273`). Section 3's fixed per-segment widths made the readout
+permanently as wide as a saturated network link, since every metric reserved its
+worst-case value. Removed; `label_min_width` is now a setting with the shell's key name
+and the shell's default. Because `ui.label` takes `width` and `maxWidth` but no
+`minWidth`, the reservation goes on a wrapper flex, which has one.
+
+**Intensity belongs on the value, not behind it.** The per-group `fill` rectangles added
+after the first round of feedback were visible boxes around each cluster — exactly what
+the user reported. The shell instead lerps each value and its glyph from the normal
+foreground towards a highlight colour (`error` by default) as the metric climbs, holding
+flat below an activity threshold, jumping to a 0.25 onset tint on crossing, and
+saturating at a critical one (`sysmon_widget.cpp:76` `gradientFactor`, `:344`
+`currentValueColor`). `M.gradientFactor` reproduces that curve and the per-stat defaults
+from `sysmon_threshold_profile.h`, so a monitor grouped beside the built-in widgets warms
+in step with them. The shell lerps in HSV; a plugin can only name colours, so the ramp
+runs through the role's alpha instead.
+
+The flame band is now the whole of what this widget adds on top of a sysmon readout,
+which is the shape the feature should have had from the start.
+
+### Consequences
+
+- The widget is a bare `ui.row` when unlit and a two-child `ui.column` when the band is
+  present. Toggling gamer mode therefore changes the content height by `FLAME_HEIGHT`,
+  and the shell re-centres it: the digits settle 3 px. Accepted over reserving the band's
+  height permanently, which would leave every user who never enables gamer mode looking
+  at a readout sitting off-centre in its capsule. The capsule's own height does not
+  change — it is `capsule_thickness` of the bar — so nothing reflows.
+- `ui.*` columns stretch children across the cross axis by default
+  (`ui_tree_reconciler.cpp:625`), so the band spans the readout without `flexGrow`.
+  `flexGrow` in a column is vertical, and the bar clips its slots; the graph band no
+  longer asks for it.
+- Without `capsule = true` the widget renders as a bare readout on the bar. That is the
+  same thing a `sysmon` widget does in that configuration, and it is documented in the
+  plugin README rather than worked around.

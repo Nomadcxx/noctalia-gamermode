@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: implemented, then revised.** This plan is a record of how the widget was
+> built, not a description of what shipped. Live testing replaced the hand-drawn pill and
+> the fixed per-segment widths with the shell's own capsule and threshold colouring;
+> anywhere this plan says pill, `PILL_HEIGHT`, `PILL_RADIUS`, `pillProps`, or a per-segment
+> `width`, read the "Revision: the shell owns the pill" section of
+> `docs/plans/2026-08-09-bar-monitor-design.md` instead.
+
 **Goal:** Add a second bar widget that renders a live metrics readout good enough to replace a row of Noctalia's built-in `sysmon` widgets, with a gamer-mode highlight the built-in cannot provide.
 
 **Architecture:** A new `monitor.luau` entry watches the `metrics` and `game_mode` state the service already publishes and renders a declarative `barWidget.render()` tree. It owns no state, polls nothing, and spawns nothing. The existing toggle widget stays imperative and gains custom-icon settings and tooltip rows.
