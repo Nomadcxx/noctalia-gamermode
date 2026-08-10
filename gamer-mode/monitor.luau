@@ -297,26 +297,92 @@ for i = 1, FLAME_COLUMNS do
     flameScratch[i] = 0
 end
 
--- One step of a 1-D fire: bleed into the neighbours, decay, then inject sparks in
--- proportion to how hard the machine is working.
+-- Tongues are objects with a life, not one-frame spikes. A spark that is blurred away the
+-- frame after it lands can never read as a flame; one that keeps injecting while it drifts
+-- does. The pool is fixed and preallocated for the same reason as the scratch buffer.
+local FLAME_SEEDS = 6
+local flameSeeds = {}
+for i = 1, FLAME_SEEDS do
+    flameSeeds[i] = { pos = 0, life = 0, power = 0 }
+end
+local flameWind = 0
+local flameWindPhase = 0
+
+-- Lets a test start from a known field. Nothing in the widget calls this.
+function M.resetFlame()
+    flameWind = 0
+    flameWindPhase = 0
+    for i = 1, FLAME_SEEDS do
+        local seed = flameSeeds[i]
+        seed.pos, seed.life, seed.power = 0, 0, 0
+    end
+end
+
+-- Reads outside the band as cold. Cyclic wraparound was why heat used to teleport from
+-- one end to the other.
+local function sampleField(index)
+    if index < 1 or index > FLAME_COLUMNS then
+        return 0
+    end
+    return flameScratch[index]
+end
+
+-- One step of a 1-D fire. Two sums of slowly moving sines give a wind that wanders
+-- without ever repeating on a period short enough to notice; the field is advected along
+-- it, blurred with a kernel that leans the same way, then sharpened to put back the peaks
+-- the blur flattens. Sharpening is what turns a ridge into tongues.
 function M.stepFlame(field, heat, dtMs)
-    local decay = math.min(1, (dtMs or 33) * 0.0042)
+    local dt = dtMs or 33
+    local decay = math.min(1, dt * 0.0042)
+
+    flameWindPhase = flameWindPhase + dt * 0.0009
+    flameWind = math.sin(flameWindPhase) * 0.8 + math.sin(flameWindPhase * 2.3) * 0.35
+
     for i = 1, FLAME_COLUMNS do
         flameScratch[i] = field[i] or 0
     end
+
+    local lean = math.max(-1, math.min(1, flameWind))
+    local weightLeft = 0.16 + lean * 0.06
+    local weightRight = 0.16 - lean * 0.06
+
     for i = 1, FLAME_COLUMNS do
-        local left = flameScratch[i == 1 and FLAME_COLUMNS or i - 1]
-        local right = flameScratch[i == FLAME_COLUMNS and 1 or i + 1]
-        local blended = flameScratch[i] * 0.62 + (left + right) * 0.19
-        field[i] = math.max(0, blended - decay * (0.5 + math.random() * 0.7))
+        -- Fractional read from upwind: this is the advection.
+        local source = i - flameWind
+        local base = math.floor(source)
+        local frac = source - base
+        local shifted = sampleField(base) * (1 - frac) + sampleField(base + 1) * frac
+        local blended = shifted * 0.66
+            + sampleField(i - 1) * weightLeft
+            + sampleField(i + 1) * weightRight
+        local value = blended - decay * (0.5 + math.random() * 0.7)
+        if value <= 0 then
+            field[i] = 0
+        else
+            -- Gamma above 1 pushes midtones down and leaves peaks alone, so the tops
+            -- separate from the body instead of melting into it.
+            field[i] = math.min(1, value ^ 1.3)
+        end
     end
+
     if heat <= 0 then
         return
     end
-    local sparks = math.max(1, math.floor(FLAME_COLUMNS * 0.22 * heat + 0.5))
-    for _ = 1, sparks do
-        local index = math.random(1, FLAME_COLUMNS)
-        field[index] = math.min(1, field[index] + 0.55 + math.random() * 0.45 * heat)
+
+    for i = 1, FLAME_SEEDS do
+        local seed = flameSeeds[i]
+        if seed.life > 0 then
+            seed.life = seed.life - dt
+            seed.pos = seed.pos + flameWind * 0.35
+            local index = math.floor(seed.pos + 0.5)
+            if index >= 1 and index <= FLAME_COLUMNS then
+                field[index] = math.min(1, field[index] + seed.power * dt * 0.02)
+            end
+        elseif math.random() < heat * 0.35 then
+            seed.pos = math.random(1, FLAME_COLUMNS)
+            seed.life = 120 + math.random() * 260
+            seed.power = 0.45 + math.random() * 0.55 * heat
+        end
     end
 end
 

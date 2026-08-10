@@ -425,6 +425,104 @@ assert(monitor.flareIntensity(-10, 1) == 0, "a negative elapsed is not a flare")
 assert(math.abs(monitor.flareIntensity(150, 0.5) - 0.5) < 1e-9, "peak scales the envelope")
 assert(monitor.flareIntensity(300, 0) == 0, "a zero peak never lights")
 
+-- ── flame motion ──
+
+local function newField()
+    local f = {}
+    for i = 1, 28 do f[i] = 0 end
+    return f
+end
+
+local function peakIndex(field)
+    local best, at = -1, 0
+    for i, v in ipairs(field) do
+        if v > best then best, at = v, i end
+    end
+    return at, best
+end
+
+-- Deterministic: the model uses math.random, so seed it and reset the module's wind and
+-- seed pool, or these assertions depend on whatever ran before them.
+math.randomseed(20260810)
+monitor.resetFlame()
+
+-- Heat injected in the middle must travel. A symmetric blur leaves the peak where it was
+-- put; advection is the whole difference between a fading blob and a flame.
+local drift = newField()
+drift[14] = 1
+local start = peakIndex(drift)
+local moved = false
+for _ = 1, 40 do
+    monitor.stepFlame(drift, 0, 33)
+    if peakIndex(drift) ~= start then moved = true end
+end
+assert(moved, "advection moves heat along the band")
+
+-- Edges are clamped, not cyclic. Heat pushed off one end must not reappear at the other.
+monitor.resetFlame()
+local edge = newField()
+edge[1] = 1
+for _ = 1, 12 do
+    monitor.stepFlame(edge, 0, 33)
+end
+assert(edge[28] < 0.02,
+    "heat at the near edge does not wrap to the far one, got " .. tostring(edge[28]))
+
+-- Seeds persist across frames rather than being one-frame spikes, so a tongue has
+-- continuity. The measurement has to be per column and at LOW heat. At high heat the
+-- band saturates and stays lit whatever the injection model, so a band-wide peak cannot
+-- tell the two apart -- an earlier draft of this test scored 59 out of 60 frames and
+-- would have passed against the old one-frame-spark model too. Measured against that
+-- model as a control, this run is 9 frames with persistent seeds and 2 without.
+monitor.resetFlame()
+math.randomseed(4242)
+local lit = newField()
+local runs, longest = {}, 0
+for i = 1, 28 do runs[i] = 0 end
+for _ = 1, 120 do
+    monitor.stepFlame(lit, 0.15, 33)
+    for i = 1, 28 do
+        if lit[i] > 0.30 then
+            runs[i] = runs[i] + 1
+            if runs[i] > longest then longest = runs[i] end
+        else
+            runs[i] = 0
+        end
+    end
+end
+assert(longest >= 6, "a tongue holds its column for several frames, longest " .. tostring(longest))
+
+-- The field is a normalised heightfield. Anything outside 0..1 is a renderer bug waiting
+-- to happen, and the sharpening step is the easiest way to introduce one.
+monitor.resetFlame()
+local bounded = newField()
+for _ = 1, 400 do
+    monitor.stepFlame(bounded, math.random(), 33)
+    for i, v in ipairs(bounded) do
+        assert(v >= 0 and v <= 1, "column " .. i .. " left 0..1 at " .. tostring(v))
+    end
+end
+
+-- The step runs 30 times a second for as long as a game does, so it must not grow
+-- anything. The field is the only table it writes, and its length is the cheap proxy for
+-- the scratch buffer and seed pool staying preallocated too.
+monitor.resetFlame()
+local fixed = newField()
+for _ = 1, 300 do
+    monitor.stepFlame(fixed, 0.7, 33)
+end
+assert(#fixed == 28, "the field neither grows nor is replaced, got " .. tostring(#fixed))
+
+-- With no heat the band must actually die, or "resting" would never look resting.
+monitor.resetFlame()
+local dying = newField()
+for i = 1, 28 do dying[i] = 1 end
+for _ = 1, 200 do
+    monitor.stepFlame(dying, 0, 33)
+end
+local _, remaining = peakIndex(dying)
+assert(remaining < 0.02, "the field burns out with no heat, got " .. tostring(remaining))
+
 -- ── intervals ──
 
 mock.config.flame = "flare"
