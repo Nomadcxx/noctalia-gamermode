@@ -356,6 +356,65 @@ local function readingRow(entry, withBar)
     })
 end
 
+-- How hard the machine is working, 0..1, mirroring monitor.luau's heatOf. Usage leads
+-- because that is what a player feels; temperature follows. cpuPerc/gpuPerc are 0..1
+-- fractions, matching what the service publishes.
+local function heatOf(m)
+    if not (type(m) == "table" and m.available) then
+        return 0
+    end
+    local gpuUsage = 0
+    if m.gpuAvailable and tonumber(m.gpuPerc) then
+        gpuUsage = tonumber(m.gpuPerc)
+    end
+    local usage = math.max(tonumber(m.cpuPerc) or 0, gpuUsage)
+    local hottest = math.max(tonumber(m.cpuTemp) or 0, tonumber(m.gpuTemp) or 0)
+    local tempHeat = 0
+    if hottest > 0 then
+        tempHeat = math.max(0, math.min(1, (hottest - 50) / 40))
+    end
+    return math.max(0, math.min(1, usage * 0.7 + tempHeat * 0.3))
+end
+
+local haloPhase = 0
+
+-- A ring, not a bloom. Nothing can be drawn behind the mark -- the tree is pure flexbox
+-- with no stack or z-index -- so the halo is ui.image's own border, animated per frame.
+-- Hex rather than a role token because fire is not a theme colour.
+function M.haloSpec(phase, heat)
+    local hot = math.max(0, math.min(1, tonumber(heat) or 0))
+    local pulse = 0.5 + 0.5 * math.sin(tonumber(phase) or 0)
+    local intensity = 0.25 + 0.75 * hot
+    local alpha = math.floor((0.20 + 0.55 * intensity * pulse) * 255 + 0.5)
+    local green = math.floor(90 + 110 * hot + 0.5)
+    local blue = math.floor(20 + 40 * hot * pulse + 0.5)
+    return {
+        border = string.format("#%02x%02x%02x%02x", 255, green, blue, alpha),
+        borderWidth = 1 + 2 * intensity * pulse,
+    }
+end
+
+-- A soft bar under the header that breathes. ui.box's softness is what keeps it from
+-- reading as a second separator; a hard 2px rule there just looks like a mistake.
+function M.emberSpec(phase, heat)
+    local hot = math.max(0, math.min(1, tonumber(heat) or 0))
+    local pulse = 0.5 + 0.5 * math.sin(tonumber(phase) or 0)
+    local opacity = 0.18 + 0.42 * (0.3 + 0.7 * hot) * pulse
+    return {
+        fill = string.format("#ff%02x1e", math.floor(90 + 110 * hot + 0.5)),
+        opacity = math.max(0, math.min(1, opacity)),
+        softness = 2 + 2 * hot,
+    }
+end
+
+-- Vsync ticks are coalesced and stop dead while the panel is closed, but they are still a
+-- cost, so they are only asked for while there is something to animate.
+local function syncFrameTick()
+    if panel.setNeedsFrameTick then
+        panel.setNeedsFrameTick(gameMode.enabled == true)
+    end
+end
+
 local function toggleButton()
     if gameMode.busy then
         return ui.button({ text = tr("panel.working"), enabled = false, variant = "ghost" })
@@ -370,11 +429,22 @@ end
 
 local function header()
     local logo = logoPath()
-    local mark = logo
-            and ui.image({ path = logo, width = 42, height = 42, fit = "contain" })
+    local mark
+    if logo then
+        -- radius is set unconditionally: putting it inside the branch would pop the mark
+        -- between square and circular every time the mode is toggled.
+        local props = { path = logo, width = 42, height = 42, fit = "contain", radius = 21 }
+        if gameMode.enabled then
+            local halo = M.haloSpec(haloPhase, heatOf(metrics))
+            props.border = halo.border
+            props.borderWidth = halo.borderWidth
+        end
+        mark = ui.image(props)
+    else
         -- The glyph is the fallback for the one case that can fail: no plugin data
         -- directory to write the logo into.
-        or ui.glyph({ name = "device-gamepad-2", size = 22, color = "primary" })
+        mark = ui.glyph({ name = "device-gamepad-2", size = 22, color = "primary" })
+    end
 
     return ui.row({ align = "center", gap = 10 }, {
         mark,
@@ -584,6 +654,19 @@ function onOpen()
     gameMode = noctalia.state.get("game_mode") or gameMode
     power = noctalia.state.get("power") or power
     render()
+    -- Watchers fire on change, so opening the panel while gamer mode is already on would
+    -- otherwise leave the halo frozen until the next toggle.
+    syncFrameTick()
+end
+
+-- Called at vsync while the panel is open and something is animating. Advancing a phase
+-- and re-rendering is the whole of it; the halo and the ember are pure functions of it.
+function onFrameTick(deltaMs)
+    if not gameMode.enabled then
+        return
+    end
+    haloPhase = (haloPhase + (tonumber(deltaMs) or 16) * 0.0025) % (math.pi * 2)
+    render()
 end
 
 -- The command carries the chosen profile so one button both picks and applies. Disabling
@@ -648,6 +731,7 @@ end)
 
 noctalia.state.watch("game_mode", function(value)
     gameMode = type(value) == "table" and value or { enabled = false, busy = false, suspended = {} }
+    syncFrameTick()
     render()
 end)
 

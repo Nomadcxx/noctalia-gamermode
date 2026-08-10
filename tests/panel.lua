@@ -20,6 +20,9 @@ _G.panel = {
     close = function()
         _G.panel.closed = true
     end,
+    setNeedsFrameTick = function(wants)
+        _G.panel.frameTick = wants
+    end,
 }
 
 local mock = helpers.newNoctalia({
@@ -402,3 +405,61 @@ assert(readings > 0, "readings are promoted to on_surface")
 -- rewriting one logo in place would keep serving the previous theme's raster.
 assert(p.logoVariant(true) == "logo-dark.svg", "dark theme picks the dark mark")
 assert(p.logoVariant(false) == "logo-light.svg", "light theme picks the light mark")
+
+-- ── halo ──
+
+-- A glow behind the mark is impossible: there is no stack, overlay or z-index node, so
+-- the halo is an animated border ring on the image itself. ui.image takes border and
+-- borderWidth, and a hex colour carries its own alpha byte.
+local calm = p.haloSpec(0, 0)
+local fierce = p.haloSpec(0, 1)
+assert(fierce.borderWidth > calm.borderWidth, "more heat means a thicker ring")
+assert(string.match(fierce.border, "^#%x%x%x%x%x%x%x%x$"),
+    "the ring carries its own alpha, got " .. tostring(fierce.border))
+
+-- Quadrature, not antiphase: sin(0) and sin(pi) are each ~0, so comparing those two
+-- phases compares identical output and the assertion fails after the change.
+local a = p.haloSpec(0, 0.6)
+local b = p.haloSpec(math.pi / 2, 0.6)
+assert(a.border ~= b.border or a.borderWidth ~= b.borderWidth,
+    "the halo animates across the phase")
+
+-- The tick is a cost, so it is only requested while the mode is on.
+_G.panel.frameTick = nil
+noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} })
+assert(_G.panel.frameTick == true, "gamer mode on raises the frame tick")
+noctalia.state.set("game_mode", { enabled = false, busy = false, suspended = {} })
+assert(_G.panel.frameTick == false, "gamer mode off releases it")
+
+-- Opening with the mode already on must arm it too; watchers only fire on change.
+_G.panel.frameTick = nil
+noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} })
+_G.panel.frameTick = nil
+onOpen()
+assert(_G.panel.frameTick == true, "opening with the mode on arms the tick")
+
+-- The rendered mark actually receives the ring.
+local function findImage(node)
+    if type(node) ~= "table" then return nil end
+    if node.kind == "image" then return node end
+    for _, child in ipairs(node.children or {}) do
+        local hit = findImage(child)
+        if hit then return hit end
+    end
+    return nil
+end
+local litMark = findImage(rendered)
+assert(litMark and litMark.spec.border, "the lit mark carries a halo border")
+noctalia.state.set("game_mode", { enabled = false, busy = false, suspended = {} })
+local darkMark = findImage(rendered)
+assert(darkMark and darkMark.spec.border == nil, "an idle mark has no ring")
+assert(darkMark.spec.radius == litMark.spec.radius, "the mark does not change shape on toggle")
+
+-- onFrameTick advances the phase and re-renders; it is inert while the mode is off.
+rendered = nil
+onFrameTick(16)
+assert(rendered == nil, "an idle panel does not re-render on a stray tick")
+noctalia.state.set("game_mode", { enabled = true, busy = false, suspended = {} })
+rendered = nil
+onFrameTick(16)
+assert(type(rendered) == "table", "a tick re-renders while the mode is on")
