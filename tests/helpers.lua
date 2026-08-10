@@ -415,6 +415,10 @@ function helpers.newNoctalia(opts)
         return dataDir
     end
 
+    mock.isDarkMode = function()
+        return opts.darkMode ~= false
+    end
+
     mock.commandExists = function(name)
         return opts.missingCommands == nil or not opts.missingCommands[name]
     end

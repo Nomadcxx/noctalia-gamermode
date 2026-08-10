@@ -395,3 +395,10 @@ for _, spec in ipairs(labels) do
 end
 assert(captions > 0, "captions stay dimmed")
 assert(readings > 0, "readings are promoted to on_surface")
+
+-- ── the mark ──
+
+-- Two files, never one path rewritten. Textures are cached by {path, targetSize}, so
+-- rewriting one logo in place would keep serving the previous theme's raster.
+assert(p.logoVariant(true) == "logo-dark.svg", "dark theme picks the dark mark")
+assert(p.logoVariant(false) == "logo-light.svg", "light theme picks the light mark")
