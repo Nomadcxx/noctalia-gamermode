@@ -566,6 +566,24 @@ for _, child in ipairs(verticalTree.children) do
         "a vertical stack holds only segment cells, found " .. tostring(child.kind))
 end
 
+-- ── tint floor ──
+
+-- Crossing a threshold must never make the value less visible than it was. The shell
+-- lerps in HSV between two resolved colours; a plugin can read neither, so the ramp runs
+-- through the role's alpha instead. That only works if the floor stays high enough that
+-- a tinted value is at least as present as an untinted one.
+local hotMetrics = helpers.copy(FULL)
+hotMetrics.cpuPerc = 0.51
+local justOver = monitor.formatSegments(hotMetrics, monitor.readConfig())[1]
+assert(justOver.tint > 0, "51% is over the 50% activity threshold")
+
+local hotTree = monitor.buildTree(hotMetrics, off, monitor.readConfig(), false, nil)
+local hotSegment = hotTree.children[1].children[1].children[1]
+local hotColor = hotSegment.children[#hotSegment.children].spec.color
+local alpha = tonumber(string.match(hotColor, "^error/([%d%.]+)$"))
+assert(alpha ~= nil, "a tinted value names the error role with an alpha, got " .. tostring(hotColor))
+assert(alpha >= 0.80, "the tint floor keeps the value present, got " .. tostring(alpha))
+
 -- ── intervals ──
 
 mock.config.flame = "flare"

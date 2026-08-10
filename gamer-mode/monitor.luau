@@ -460,7 +460,10 @@ local function valueColor(segment)
     if segment.tint <= 0 then
         return "on_surface"
     end
-    return string.format("error/%.2f", 0.55 + 0.45 * segment.tint)
+    -- The floor is high on purpose. Alpha is the only ramp available, and a low floor
+    -- makes the value *dimmer* the moment it crosses its activity threshold -- the
+    -- opposite of what the threshold is for.
+    return string.format("error/%.2f", 0.80 + 0.20 * segment.tint)
 end
 
 -- Glyph and value share the colour, as they do in the shell: syncValueColor tints both
