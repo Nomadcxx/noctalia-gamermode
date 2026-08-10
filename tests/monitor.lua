@@ -398,6 +398,33 @@ assert(monitor.buildTree(FULL, on, flameOff, false, 0.8).kind == "row",
 assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
     "a vertical readout stacks segments and grows no band")
 
+-- ── flare envelope ──
+
+-- Fire catches rather than arriving at full brightness, so frame one is dark and the
+-- peak lands at the end of the ignition ramp.
+assert(monitor.flareIntensity(0, 1) == 0, "the flare ignites from nothing")
+assert(monitor.flareIntensity(75, 1) < monitor.flareIntensity(150, 1),
+    "the ignition ramps up")
+assert(math.abs(monitor.flareIntensity(150, 1) - 1) < 1e-9,
+    "the peak lands when ignition ends, got " .. tostring(monitor.flareIntensity(150, 1)))
+
+-- Ease-out, not linear: the curve is steepest right after the peak and flattens into a
+-- long ember tail. Comparing the two end quarters of the decay is what distinguishes the
+-- shape; comparing against a straight line would not, because a cubic sits under it
+-- everywhere.
+local earlyDrop = monitor.flareIntensity(150, 1) - monitor.flareIntensity(300, 1)
+local lateDrop = monitor.flareIntensity(750, 1) - monitor.flareIntensity(900, 1)
+assert(earlyDrop > lateDrop,
+    "decay flattens: early " .. tostring(earlyDrop) .. " late " .. tostring(lateDrop))
+
+assert(monitor.flareIntensity(900, 1) == 0, "the flare is out at 900ms")
+assert(monitor.flareIntensity(5000, 1) == 0, "and stays out afterwards")
+assert(monitor.flareIntensity(-10, 1) == 0, "a negative elapsed is not a flare")
+
+-- The peak scales the whole envelope rather than clipping it.
+assert(math.abs(monitor.flareIntensity(150, 0.5) - 0.5) < 1e-9, "peak scales the envelope")
+assert(monitor.flareIntensity(300, 0) == 0, "a zero peak never lights")
+
 -- ── intervals ──
 
 mock.config.flame = "flare"

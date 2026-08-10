@@ -22,6 +22,9 @@ local PLACEHOLDER = "—"
 local IDLE_INTERVAL_MS = 1000
 local FLARE_INTERVAL_MS = 33
 local FLARE_DURATION_MS = 900
+-- Fire catches. Opening at full intensity is the single thing that made the old flare
+-- read as a light switch rather than an ignition.
+local IGNITE_MS = 150
 
 local FLAME_COLUMNS = 28
 -- The shell's capsule is capsule_thickness (0.76 by default) of the bar -- about 26px on
@@ -464,6 +467,25 @@ function M.buildTree(m, gm, config, vertical, burning)
     })
 end
 
+-- The flare's shape over its 900ms life: ease-in to the peak, then ease-out cubic to
+-- nothing. The cubic is what gives the long ember tail -- its slope is steepest right
+-- after the peak and almost flat by the end, so the last third of the time covers only a
+-- few percent of the intensity.
+function M.flareIntensity(elapsedMs, peak)
+    local t = tonumber(elapsedMs) or 0
+    local top = math.max(0, tonumber(peak) or 0)
+    if t < 0 or t >= FLARE_DURATION_MS or top <= 0 then
+        return 0
+    end
+    if t < IGNITE_MS then
+        local k = t / IGNITE_MS
+        return top * k * k
+    end
+    local k = (t - IGNITE_MS) / (FLARE_DURATION_MS - IGNITE_MS)
+    local inv = 1 - k
+    return top * inv * inv * inv
+end
+
 local function burningLevel(config)
     if barWidget.isVertical() or config.flame == "off" then
         return nil
@@ -482,8 +504,8 @@ local function burningLevel(config)
     if elapsed >= FLARE_DURATION_MS then
         return nil
     end
-    -- The flare opens hot whatever the load, then settles to the resting tint.
-    return math.max(heat, 0.75) * (1 - elapsed / FLARE_DURATION_MS)
+    -- The flare opens hot whatever the load, then follows the envelope down.
+    return M.flareIntensity(elapsed, math.max(heat, 0.75))
 end
 
 local function render()
