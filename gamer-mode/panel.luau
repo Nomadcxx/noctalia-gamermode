@@ -345,32 +345,30 @@ end
 
 -- ── rendering ──
 
-local function metricRow(row)
+-- One builder for readings with a bar and readings without. After the hierarchy pass the
+-- two differed only by the progress node, and keeping two copies meant every colour
+-- decision had to be made twice.
+local function readingRow(entry, withBar)
+    local line = ui.row({ align = "center", gap = 8 }, {
+        ui.glyph({ name = entry.glyph, size = 14, color = "on_surface_variant" }),
+        ui.label({ text = entry.label, color = "on_surface_variant", width = 48 }),
+        -- A spacer pushes the detail right. `align` is not a label prop: setting it left
+        -- the text unaligned and the shell logged a warning on every render.
+        ui.spacer({ flexGrow = 1 }),
+        ui.label({ text = entry.detail, color = "on_surface", fontSize = 11 }),
+    })
+    if not withBar then
+        return line
+    end
     return ui.column({ gap = 4 }, {
-        ui.row({ align = "center", gap = 8 }, {
-            ui.glyph({ name = row.glyph, size = 14, color = "on_surface_variant" }),
-            ui.label({ text = row.label, color = "on_surface_variant", width = 48 }),
-            -- A spacer pushes the detail right. `align` is not a label prop: setting it
-            -- left the text unaligned and the shell logged a warning on every render.
-            ui.spacer({ flexGrow = 1 }),
-            ui.label({ text = row.detail, color = "on_surface_variant", fontSize = 11 }),
-        }),
+        line,
         ui.progress({
             height = 4,
-            progress = row.progress,
-            fill = M.barFill(row),
+            progress = entry.progress,
+            fill = M.barFill(entry),
             track = "surface_variant",
             radius = 2,
         }),
-    })
-end
-
-local function figureRow(figure)
-    return ui.row({ align = "center", gap = 8 }, {
-        ui.glyph({ name = figure.glyph, size = 14, color = "on_surface_variant" }),
-        ui.label({ text = figure.label, color = "on_surface_variant", width = 48 }),
-        ui.spacer({ flexGrow = 1 }),
-        ui.label({ text = figure.detail, color = "on_surface_variant", fontSize = 11 }),
     })
 end
 
@@ -548,10 +546,10 @@ local function body()
     else
         children[#children + 1] = sectionLabel("panel.performance")
         for _, row in ipairs(rows) do
-            children[#children + 1] = metricRow(row)
+            children[#children + 1] = readingRow(row, true)
         end
         for _, figure in ipairs(M.buildFigures(metrics)) do
-            children[#children + 1] = figureRow(figure)
+            children[#children + 1] = readingRow(figure, false)
         end
         if not metrics.gpuAvailable then
             children[#children + 1] = ui.label({

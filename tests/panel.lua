@@ -370,3 +370,28 @@ for _, row in ipairs(all) do
     assert(row.activity == want[1] and row.critical == want[2],
         row.label .. " thresholds are " .. tostring(row.activity) .. "/" .. tostring(row.critical))
 end
+
+-- ── hierarchy ──
+
+-- A reading must outrank its caption. Everything used to be on_surface_variant, which
+-- gave a wall of equally dim text with no entry point.
+local function findLabels(node, out)
+    out = out or {}
+    if type(node) ~= "table" then return out end
+    if node.kind == "label" then out[#out + 1] = node.spec end
+    for _, child in ipairs(node.children or {}) do findLabels(child, out) end
+    return out
+end
+
+noctalia.state.set("metrics", {
+    available = true, cpuPerc = 0.5, memPerc = 0.5,
+    memUsedMb = 16384, memTotalMb = 32768,
+})
+local labels = findLabels(rendered)
+local captions, readings = 0, 0
+for _, spec in ipairs(labels) do
+    if spec.color == "on_surface_variant" then captions = captions + 1 end
+    if spec.color == "on_surface" then readings = readings + 1 end
+end
+assert(captions > 0, "captions stay dimmed")
+assert(readings > 0, "readings are promoted to on_surface")
