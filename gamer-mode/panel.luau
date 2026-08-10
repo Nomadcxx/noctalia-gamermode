@@ -138,6 +138,42 @@ end
 -- buildRows produces one entry per reading the machine actually reports. Unsupported
 -- readings are absent rather than drawn as an empty bar, which would look like a real
 -- idle reading.
+-- The shell tints a sysmon value from its normal colour towards the highlight colour as
+-- the metric climbs, holding flat below the activity threshold and saturating at the
+-- critical one, with a jump to kActivityOnset the moment it crosses (sysmon_widget.cpp
+-- gradientFactor). Duplicated from monitor.luau rather than shared: plugin entries run in
+-- separate sandboxed Luau states with no `require`.
+local ACTIVITY_ONSET = 0.25
+
+function M.gradientFactor(value, activity, critical)
+    if value == nil or activity == nil or critical == nil then
+        return 0
+    end
+    local v = math.max(value, 0)
+    local top = math.max(critical, 0)
+    if top <= 0 or v <= 0 then
+        return 0
+    end
+    local floor = math.max(0, math.min(activity, top))
+    if v <= floor then
+        return 0
+    end
+    if v >= top then
+        return 1
+    end
+    return ACTIVITY_ONSET + (1 - ACTIVITY_ONSET) * (v - floor) / (top - floor)
+end
+
+-- Every row's `progress` is already the fraction the shell would gradient on, so the bar
+-- and the reading cannot disagree.
+function M.barFill(row)
+    local tint = M.gradientFactor(row.progress, row.activity, row.critical)
+    if tint <= 0 then
+        return "primary"
+    end
+    return string.format("error/%.2f", 0.80 + 0.20 * tint)
+end
+
 function M.buildRows(m, showTemps)
     local rows = {}
     if type(m) ~= "table" or not m.available then
@@ -148,12 +184,16 @@ function M.buildRows(m, showTemps)
         label = "CPU",
         glyph = "cpu-usage",
         progress = clamp(m.cpuPerc),
+            activity = 0.50,
+            critical = 0.90,
         detail = withTemp(percent(m.cpuPerc), showTemps, m.cpuTemp),
     }
     rows[#rows + 1] = {
         label = "RAM",
         glyph = "memory",
         progress = clamp(m.memPerc),
+            activity = 0.60,
+            critical = 0.90,
         detail = usedOfTotal(m.memUsedMb, m.memTotalMb),
     }
 
@@ -165,6 +205,8 @@ function M.buildRows(m, showTemps)
             label = "Swap",
             glyph = "storage",
             progress = clamp(m.swapPerc),
+            activity = 0.20,
+            critical = 0.80,
             detail = usedOfTotal(m.swapUsedMb, m.swapTotalMb),
         }
     end
@@ -174,6 +216,8 @@ function M.buildRows(m, showTemps)
             label = "GPU",
             glyph = "gpu-usage",
             progress = clamp(m.gpuPerc),
+            activity = 0.50,
+            critical = 0.95,
             detail = withTemp(percent(m.gpuPerc), showTemps, m.gpuTemp),
         }
     end
@@ -182,6 +226,8 @@ function M.buildRows(m, showTemps)
             label = "VRAM",
             glyph = "storage",
             progress = clamp(m.vramPerc),
+            activity = 0.50,
+            critical = 0.90,
             detail = usedOfTotal(m.vramUsedMb, m.vramTotalMb),
         }
     end
@@ -312,7 +358,7 @@ local function metricRow(row)
         ui.progress({
             height = 4,
             progress = row.progress,
-            fill = "primary",
+            fill = M.barFill(row),
             track = "surface_variant",
             radius = 2,
         }),

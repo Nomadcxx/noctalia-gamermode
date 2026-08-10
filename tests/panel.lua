@@ -301,3 +301,72 @@ noctalia.state.set("power", nil)
 assert(type(rendered) == "table", "panel still renders after nil writes")
 
 print("panel: passed")
+
+-- ── threshold tinting ──
+
+-- The same curve and the same thresholds as the shell's sysmon widgets, so the panel and
+-- the bar agree about what "hot" means.
+assert(p.gradientFactor(0.10, 0.50, 0.90) == 0, "below activity stays cold")
+assert(p.gradientFactor(0.50, 0.50, 0.90) == 0, "at activity is still cold")
+assert(p.gradientFactor(0.95, 0.50, 0.90) == 1, "past critical is fully hot")
+local onset = p.gradientFactor(0.51, 0.50, 0.90)
+assert(onset >= 0.25 and onset < 0.30,
+    "crossing jumps to the onset tint, got " .. tostring(onset))
+assert(p.gradientFactor(nil, 0.50, 0.90) == 0, "no reading is not a hot reading")
+-- Pin the interior slope too. The onset band alone also passes for a wrong denominator,
+-- so a broken ramp would ship green. Tolerance rather than equality: 0.70 - 0.50 is not
+-- bit-equal to 0.2 in double precision.
+assert(math.abs(p.gradientFactor(0.70, 0.50, 0.90) - 0.625) < 1e-9,
+    "the ramp is linear between the thresholds, got " .. tostring(p.gradientFactor(0.70, 0.50, 0.90)))
+
+local cool = p.buildRows({
+    available = true, cpuPerc = 0.10, memPerc = 0.10,
+    memUsedMb = 1024, memTotalMb = 32768,
+}, false)
+assert(cool[1].label == "CPU", "cpu leads the rows")
+assert(cool[1].activity == 0.50 and cool[1].critical == 0.90, "cpu uses 50/90")
+assert(p.barFill(cool[1]) == "primary", "a cool row keeps the accent colour")
+
+local hot = p.buildRows({
+    available = true, cpuPerc = 0.98, memPerc = 0.10,
+    memUsedMb = 1024, memTotalMb = 32768,
+}, false)
+local fill = p.barFill(hot[1])
+assert(string.match(fill, "^error/"), "a critical row warms to error, got " .. fill)
+local hotAlpha = tonumber(string.match(fill, "^error/([%d%.]+)$"))
+assert(hotAlpha >= 0.80, "the panel shares the bar's tint floor, got " .. tostring(hotAlpha))
+
+-- The wiring, not just the helper. Asserting only on barFill would let the metricRow edit
+-- be skipped entirely with the suite still green.
+noctalia.state.set("metrics", {
+    available = true, cpuPerc = 0.98, memPerc = 0.10,
+    memUsedMb = 1024, memTotalMb = 32768,
+})
+local sawHotBar = false
+for _, node in ipairs(flatten(rendered)) do
+    if node.kind == "progress" and type(node.spec.fill) == "string"
+        and node.spec.fill:match("^error/") then
+        sawHotBar = true
+    end
+end
+assert(sawHotBar, "a critical reading renders a warmed progress fill")
+
+-- RAM at 60/90, swap at 20/80, gpu at 50/95, vram at 50/90 -- the shell's defaults.
+local all = p.buildRows({
+    available = true, cpuPerc = 0.1, memPerc = 0.1,
+    memUsedMb = 1024, memTotalMb = 32768,
+    swapPerc = 0.1, swapUsedMb = 128, swapTotalMb = 8192,
+    gpuAvailable = true, gpuPerc = 0.1, vramPerc = 0.1,
+    vramUsedMb = 512, vramTotalMb = 8188,
+}, false)
+local expected = {
+    CPU = { 0.50, 0.90 }, RAM = { 0.60, 0.90 }, Swap = { 0.20, 0.80 },
+    GPU = { 0.50, 0.95 }, VRAM = { 0.50, 0.90 },
+}
+assert(#all == 5, "all five rows are built, got " .. #all)
+for _, row in ipairs(all) do
+    local want = expected[row.label]
+    assert(want, "unexpected row " .. tostring(row.label))
+    assert(row.activity == want[1] and row.critical == want[2],
+        row.label .. " thresholds are " .. tostring(row.activity) .. "/" .. tostring(row.critical))
+end
