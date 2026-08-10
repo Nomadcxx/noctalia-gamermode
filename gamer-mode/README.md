@@ -70,7 +70,38 @@ of suspended targets. Vertical bars stack each reading and omit the flame.
 
 ![Monitor widget with gamer mode off above and on below](monitor.webp)
 
-Gamer mode off above; the tinted pill and live flame below show it running.
+Gamer mode off above; the live flame below shows it running.
+
+### The pill
+
+The monitor draws no background of its own, for the same reason the shell's
+built-in `sysmon` widgets do not: the bar draws it. Turn it on the way you would
+for any widget and the shell frames the readout in the same stadium capsule,
+sized and centred by the bar rather than guessed at by the plugin:
+
+```toml
+[widget.gamermonitor]
+type = "nomadcxx/gamer-mode:monitor"
+capsule = true
+```
+
+`capsule_fill`, `capsule_padding`, `capsule_radius`, and `capsule_opacity` work
+here as they do elsewhere. The monitor can also join a `capsule_group`, sharing
+one capsule with the `sysmon` widgets beside it.
+
+Values hug their text by default, so the readout is exactly as wide as its
+readings — which means it breathes as network rates change. **Reserved value
+width** trades that for a steady width: set it to the widest reading you expect
+and values right-align inside the reservation instead of pushing their
+neighbours. It is a floor, not a clamp, so nothing is ever truncated.
+
+### Warning colours
+
+Each reading warms towards the theme's error colour as it climbs, holding its
+normal colour below an activity threshold and saturating at a critical one. The
+thresholds are the shell's own defaults for each metric — 50%/90% for CPU,
+60°C/85°C for temperatures, 1/50 MB/s for network — so a monitor grouped beside
+the built-in `sysmon` widgets warms in step with them.
 
 | Monitor setting | Default | Description |
 | --- | --- | --- |
@@ -84,7 +115,8 @@ Gamer mode off above; the tinted pill and live flame below show it running.
 | Load average | Off | Shows the one-minute load average. |
 | Network rates | On | Shows aggregate download and upload rates. |
 | Icons | On | Places a glyph beside each reading. Turn it off for numbers only. |
-| Highlight while gamer mode is on | On | Tints the whole readout without moving its contents. |
+| Reserved value width | `0` | Pixels held for each reading. Zero lets values hug their text. |
+| Highlight while gamer mode is on | On | Adds the flame band under the readings. |
 | Flame | `flare` | `off`, a 900 ms `flare`, or `always`. |
 | Flame style | `graph` | One graph node, or 28 sharper `bars`. |
 

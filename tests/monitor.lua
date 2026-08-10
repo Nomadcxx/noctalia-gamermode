@@ -124,17 +124,38 @@ end
 
 -- ── before the first sample ──
 
--- Placeholders keep every enabled segment at its final width, so the bar does not
--- resize a second after login.
+-- Every enabled segment is present while loading, so the readout does not gain rows a
+-- second after login.
 local pending = monitor.formatSegments({ available = false }, monitor.readConfig())
 assert(#pending == 7, "every enabled segment is present while loading, got " .. #pending)
 for _, segment in ipairs(pending) do
     assert(segment.text == "—", "placeholder text, got " .. segment.text)
-    assert(type(segment.width) == "number" and segment.width > 0, "placeholder keeps its final width")
     assert(segment.placeholder == true, "placeholders are marked so the renderer can dim them")
+    assert(segment.tint == 0, "nothing has been sampled yet, so nothing is hot")
 end
 
--- ── grouping and widths ──
+-- ── the shell's threshold curve ──
+
+-- Mirrors sysmon_widget.cpp gradientFactor: flat below activity, a jump to the onset
+-- tint on crossing, saturated at critical.
+assert(monitor.gradientFactor(0.10, 0.50, 0.90) == 0, "below the activity threshold stays cold")
+assert(monitor.gradientFactor(0.50, 0.50, 0.90) == 0, "at the activity threshold is still cold")
+assert(monitor.gradientFactor(0.95, 0.50, 0.90) == 1, "past critical saturates")
+local onset = monitor.gradientFactor(0.51, 0.50, 0.90)
+assert(onset >= 0.25 and onset < 0.3,
+    "crossing jumps straight to the onset tint rather than fading in, got " .. tostring(onset))
+assert(monitor.gradientFactor(nil, 0.5, 0.9) == 0, "an absent reading is not hot")
+assert(monitor.gradientFactor(2.0, nil, nil) == 0, "a segment with no thresholds never tints")
+
+-- Loaded metrics tint; the same metrics idle do not.
+local hotCpu
+for _, segment in ipairs(monitor.formatSegments(FULL, allOn)) do
+    if segment.id == "cpu" then hotCpu = segment end
+end
+assert(hotCpu ~= nil, "cpu segment present")
+assert(type(hotCpu.tint) == "number", "every segment carries a tint factor")
+
+-- ── grouping ──
 
 local function labelsOf(node, out)
     out = out or {}
@@ -167,23 +188,66 @@ end
 local defaults = monitor.readConfig()
 local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaults)
 
--- The root is a column: a reserved space, the row of groups, then the flame band (or the
--- space it will occupy). Three children in every state, so the widget is one height and
--- the bar never reflows when gamer mode is switched.
-assert(tree.kind == "column", "the readout root is a column, got " .. tostring(tree.kind))
-assert(#tree.children == 3, "reserved space, segments, band slot, got " .. #tree.children)
-local segmentRow = tree.children[2]
-assert(tree.children[1].kind == "spacer", "space above the digits balances the band below")
-assert(segmentRow.kind == "row", "the segments live in a row, got " .. tostring(segmentRow.kind))
-assert(#segmentRow.children == 4, "cpu, mem, gpu and net form four groups, got " .. #segmentRow.children)
+-- With no band to carry, the root is the readout row itself -- the same shape the shell's
+-- own sysmon widgets build (a row of glyph/label pairs), and no wrapper for the
+-- reconciler to walk.
+assert(tree.kind == "row", "an unlit readout is just the row, got " .. tostring(tree.kind))
+assert(#tree.children == 4, "cpu, mem, gpu and net form four groups, got " .. #tree.children)
 
+-- Nothing paints a background. The bar draws the capsule when `capsule = true`; a fill
+-- of our own would sit inside it as a visible box around every cluster.
+local function fillsIn(node, out)
+    out = out or {}
+    if type(node) ~= "table" then
+        return out
+    end
+    if node.spec ~= nil and node.spec.fill ~= nil then
+        out[#out + 1] = node.spec.fill
+    end
+    for _, child in ipairs(node.children or {}) do
+        fillsIn(child, out)
+    end
+    return out
+end
+assert(#fillsIn(tree) == 0, "the readout paints no boxes, got " .. #fillsIn(tree))
+
+-- No reserved widths by default, matching the shell's sysmon label_min_width default of
+-- zero. Reserving the widest value a metric can reach is what made this permanently as
+-- wide as a saturated network link.
 for _, spec in ipairs(labelsOf(tree)) do
-    assert(type(spec.width) == "number" and spec.width > 0,
-        "every value label reserves a fixed width, or the bar twitches on refresh")
-    assert(spec.textAlign == "right", "values are right-aligned so columns line up")
+    assert(spec.width == nil, "values hug their text unless label_min_width asks otherwise")
 end
 
 assert(glyphCount(tree) == 7, "one glyph per segment, got " .. glyphCount(tree))
+
+-- ── label_min_width ──
+
+assert(monitor.readConfig().label_min_width == 0, "no reservation by default")
+local reserved = helpers.copy(defaults)
+reserved.label_min_width = 40
+local steady = monitor.buildTree(FULL, { enabled = false }, reserved)
+local mins = {}
+local function minWidthsIn(node)
+    if type(node) ~= "table" then
+        return
+    end
+    if node.spec ~= nil and node.spec.minWidth ~= nil then
+        mins[#mins + 1] = node.spec
+    end
+    for _, child in ipairs(node.children or {}) do
+        minWidthsIn(child)
+    end
+end
+minWidthsIn(steady)
+assert(#mins == 7, "one reservation per value, got " .. #mins)
+for _, spec in ipairs(mins) do
+    assert(spec.minWidth == 40, "the configured width, got " .. tostring(spec.minWidth))
+    assert(spec.justify == "end", "digits sit against the right of the reserved space")
+end
+-- A minimum, never a clamp: a value wider than the reservation must still fit.
+for _, spec in ipairs(labelsOf(steady)) do
+    assert(spec.width == nil, "the reservation is a floor on a wrapper, not a width on the label")
+end
 
 -- ── glyphs off ──
 
@@ -205,37 +269,36 @@ for _, spec in ipairs(labelsOf(stacked)) do
     assert(spec.textAlign == "center", "stacked values are centred")
 end
 
--- ── the gamer-mode pill ──
+-- ── gamer mode ──
 
 local on = { enabled = true, suspended = { "gslapper" } }
 local off = { enabled = false, suspended = {} }
 
-local lit = monitor.buildTree(FULL, on, defaults)
+local lit = monitor.buildTree(FULL, on, defaults, false, 0.6)
 local dark = monitor.buildTree(FULL, off, defaults)
 
-assert(dark.spec.fill == nil, "no tint while gamer mode is off")
-assert(lit.spec.fill == "primary/0.15",
-    "a theme-aware tint while gamer mode is on, got " .. tostring(lit.spec.fill))
-
--- The pill must not move anything. Identical padding in both states is the whole point
--- of tinting rather than inserting a status segment.
-assert(lit.spec.paddingH == dark.spec.paddingH, "padding identical on and off")
-assert(#lit.children == #dark.children, "the same segments in both states")
+-- Gamer mode adds the band and nothing else: no fill, no padding change, no extra
+-- segment. The readout inside is identical, so no digit moves horizontally.
+assert(lit.kind == "column", "a lit readout wraps the row and the band, got " .. tostring(lit.kind))
+assert(#lit.children == 2, "readout and band, got " .. #lit.children)
+assert(lit.children[1].kind == "row", "the readout stays a row inside the column")
+assert(#lit.children[1].children == #dark.children, "the same groups in both states")
+assert(#fillsIn(lit) == 0, "lit paints no boxes either, got " .. #fillsIn(lit))
 
 -- Both conditions, not either.
 local noHighlight = helpers.copy(defaults)
 noHighlight.highlight_gamer_mode = false
-assert(monitor.buildTree(FULL, on, noHighlight).spec.fill == nil,
-    "no tint when the highlight setting is off, even with gamer mode on")
+assert(monitor.buildTree(FULL, on, noHighlight, false, 0.6).kind == "row",
+    "no band when the highlight setting is off, even with gamer mode on")
 
 assert(monitor.readConfig().highlight_gamer_mode == true, "highlight on by default")
 
--- A vertical bar grows no flame band, but it is still gamer mode and still gets the tint.
-local litVertical = monitor.buildTree(FULL, on, defaults, true)
-local darkVertical = monitor.buildTree(FULL, off, defaults, true)
-assert(litVertical.spec.fill == "primary/0.15", "vertical is tinted too, got " .. tostring(litVertical.spec.fill))
-assert(darkVertical.spec.fill == nil, "vertical is untinted while gamer mode is off")
-assert(litVertical.spec.paddingH == darkVertical.spec.paddingH, "vertical padding identical on and off")
+-- A vertical bar grows no band in either state: a ~26px column has no room under the
+-- digits, and buildTree returns the stack unchanged.
+assert(monitor.buildTree(FULL, on, defaults, true).kind == "column", "vertical stacks")
+assert(#monitor.buildTree(FULL, on, defaults, true).children
+    == #monitor.buildTree(FULL, off, defaults, true).children,
+    "vertical is the same shape on and off")
 
 -- ── config and clicks ──
 
@@ -302,42 +365,34 @@ assert(defaultsFlame.flame == "flare", "flare by default")
 assert(defaultsFlame.flame_style == "graph", "graph by default")
 
 local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
-assert(litTree.children[3].kind == "graph", "graph style renders one graph node, got " .. tostring(litTree.children[3].kind))
-assert(litTree.spec.align == "stretch", "the column stretches the graph to the readout width")
+assert(litTree.children[2].kind == "graph",
+    "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+-- The band spans the readout because a ui.* column stretches its children across the
+-- cross axis by default. It must not ask to grow along the main axis: flexGrow in a
+-- column is vertical, and the bar clips anything taller than its slot.
+assert(litTree.children[2].spec.flexGrow == nil, "the band does not grow vertically")
 
 local barsConfig = helpers.copy(defaultsFlame)
 barsConfig.flame_style = "bars"
 local barsTree = monitor.buildTree(FULL, on, barsConfig, false, 0.8)
-assert(barsTree.children[3].kind == "row", "bars style renders a row of boxes")
-assert(#barsTree.children[3].children == 28, "28 columns, got " .. #barsTree.children[3].children)
+assert(barsTree.children[2].kind == "row", "bars style renders a row of boxes")
+assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.children[2].children)
 
--- The slot is always there, but it only carries fire when something is burning.
+-- Lit but not burning still gets the band, drawn cold: without a separate resting field
+-- the live one would freeze mid-flame the moment a flare ended.
 local restingTree = monitor.buildTree(FULL, on, defaultsFlame, false, nil)
-assert(restingTree.children[3].kind == "graph", "the band slot holds its height while resting")
-for _, v in ipairs(restingTree.children[3].spec.values or {}) do
+assert(restingTree.children[2].kind == "graph", "the band is there while resting")
+for _, v in ipairs(restingTree.children[2].spec.values or {}) do
     assert(v == 0, "a resting band carries no heat, got " .. tostring(v))
 end
-assert(monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).children[3].kind == "spacer",
-    "gamer mode off leaves a plain spacer, not a band")
+
+-- Unlit, there is no band and so no column at all.
+assert(monitor.buildTree(FULL, off, defaultsFlame, false, 0.8).kind == "row",
+    "gamer mode off is a plain readout")
 local flameOff = helpers.copy(defaultsFlame)
 flameOff.flame = "off"
-assert(monitor.buildTree(FULL, on, flameOff, false, 0.8).children[3].kind == "spacer",
-    "flame off leaves a plain spacer")
-
--- The capsule is a stadium, matching what Noctalia frames its own bar widgets with:
--- resolvedBarCapsuleRadius is min(width, height) * 0.5, so ask past any bar height and
--- let the renderer clamp.
-assert(litTree.spec.radius >= 999, "the pill is a stadium, got radius " .. tostring(litTree.spec.radius))
-assert(monitor.buildTree(FULL, on, defaultsFlame, true, nil).spec.radius >= 999, "vertical is a stadium too")
-
--- A 12px band alone is easy to miss, so the capsule warms as well. Resting stays on the
--- theme role; burning goes to ember and deepens with heat.
-assert(monitor.buildTree(FULL, on, defaultsFlame, false, nil).spec.fill == "primary/0.15",
-    "resting keeps the theme tint")
-local warmLow = monitor.buildTree(FULL, on, defaultsFlame, false, 0.2).spec.fill
-local warmHigh = monitor.buildTree(FULL, on, defaultsFlame, false, 0.95).spec.fill
-assert(warmLow:sub(1, 1) == "#" and warmHigh:sub(1, 1) == "#", "burning uses a fixed ember, not a role")
-assert(warmHigh > warmLow, "hotter means a stronger ember, got " .. warmLow .. " then " .. warmHigh)
+assert(monitor.buildTree(FULL, on, flameOff, false, 0.8).kind == "row",
+    "flame off is a plain readout")
 
 -- A vertical bar has no horizontal room for it.
 assert(#monitor.buildTree(FULL, on, defaultsFlame, true, 0.8).children == 7,
@@ -390,8 +445,9 @@ assert(mock.updateIntervalMs == nil, "flame=off never raises the tick")
 
 local offConfig = monitor.readConfig()
 assert(offConfig.flame == "off", "the setting is read")
-assert(monitor.buildTree(FULL, on, offConfig, false, nil).spec.fill == "primary/0.15",
-    "flame=off still tints, it just does not burn")
+local offTree = monitor.buildTree(FULL, on, offConfig, false, nil)
+assert(offTree.kind == "row" and #offTree.children == 4,
+    "flame=off is the plain readout, unchanged by gamer mode")
 
 -- ── flame = always ──
 

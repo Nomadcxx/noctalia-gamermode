@@ -79,6 +79,7 @@
       "show_load": { "label": "Load average" },
       "show_net": { "label": "Network rates" },
       "show_glyphs": { "label": "Icons", "description": "Show an icon beside each reading. Off gives numbers only." },
+      "label_min_width": { "label": "Reserved value width", "description": "Pixels to reserve for each reading. Zero lets every value hug its text, so the readout is as wide as it needs to be. Raise it if you would rather the width held steady than stayed tight." },
       "highlight_gamer_mode": {
         "label": "Highlight while gamer mode is on",
         "description": "Tints the readout instead of adding an icon, so nothing moves when it switches."

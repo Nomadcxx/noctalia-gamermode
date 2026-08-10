@@ -10,13 +10,12 @@
 local PANEL_ID = "nomadcxx/gamer-mode:main"
 local MIB_PER_GIB = 1024
 local PLACEHOLDER = "—"
--- A role with an alpha suffix rather than a hex value, so the tint follows the theme.
-local PILL_FILL = "primary/0.15"
--- Noctalia frames its own bar widgets with a stadium: resolvedBarCapsuleRadius is
--- min(width, height) * 0.5 (shell widget.cpp). Ask for more than any bar is tall and the
--- renderer clamps to that same half-height, so the pill matches the built-in capsules
--- instead of guessing a corner size.
-local PILL_RADIUS = 999
+-- No pill is drawn here. The bar draws it: with `capsule = true` on the widget the shell
+-- wraps the rendered content in a stadium shell sized content + 2 * capsule_padding on
+-- the main axis and capsule_thickness * bar thickness on the cross axis, radius
+-- min(w, h) * 0.5, content centred inside it (shell bar.cpp finalizeCapsules). That is
+-- the same capsule the built-in sysmon widgets get, and drawing our own could only ever
+-- approximate it -- badly, since a plugin cannot see the bar's thickness or scale.
 
 -- The readout is driven by state.watch, so the tick only exists for animation. It cannot
 -- be switched off, so idle is slowed from the 250ms default instead.
@@ -25,12 +24,11 @@ local FLARE_INTERVAL_MS = 33
 local FLARE_DURATION_MS = 900
 
 local FLAME_COLUMNS = 28
+-- The shell's capsule is capsule_thickness (0.76 by default) of the bar -- about 26px on
+-- a 34px bar -- and the digits take ~17 of that. Six leaves the band room to burn while
+-- the readout still fits, which matters because the bar clips its slots.
 local FLAME_HEIGHT = 6
--- The bar host stretches a content-sized child to the full bar height, which makes the
--- capsule swallow the bar. An explicit height keeps it inset the way Noctalia's own
--- capsules are; the reconciler scales it with the bar's content scale.
-local PILL_HEIGHT = 28
--- Embers stay alive at idle so the pill still reads as lit.
+-- Embers stay alive at idle so the band still reads as lit.
 local HEAT_FLOOR = 0.12
 
 -- Fixed, not role-derived. Fire is not a theme colour, and a theme whose primary is green
@@ -92,20 +90,24 @@ end
 -- rather than printing a zero that reads like an idle device.
 local SEGMENTS = {
     {
-        id = "cpu", setting = "show_cpu", group = "cpu", glyph = "cpu-usage", width = 34,
+        id = "cpu", setting = "show_cpu", group = "cpu", glyph = "cpu-usage",
+        activity = 0.50, critical = 0.90, heat = function(m) return m.cpuPerc end,
         value = function(m) return percent(m.cpuPerc) end,
     },
     {
-        id = "cpu_temp", setting = "show_cpu_temp", group = "cpu", glyph = "cpu-temperature", width = 34,
+        id = "cpu_temp", setting = "show_cpu_temp", group = "cpu", glyph = "cpu-temperature",
+        activity = 60, critical = 85, heat = function(m) return m.cpuTemp end,
         value = function(m) return m.cpuTemp and degrees(m.cpuTemp) or nil end,
         tip = function(m) return m.cpuTemp and string.format("%d°C", math.floor(m.cpuTemp + 0.5)) or nil end,
     },
     {
-        id = "ram", setting = "show_ram", group = "mem", glyph = "memory", width = 42,
+        id = "ram", setting = "show_ram", group = "mem", glyph = "memory",
+        activity = 0.60, critical = 0.90, heat = function(m) return m.memPerc end,
         value = function(m) return gibibytes(m.memUsedMb) end,
     },
     {
-        id = "swap", setting = "show_swap", group = "mem", glyph = "storage", width = 34,
+        id = "swap", setting = "show_swap", group = "mem", glyph = "storage",
+        activity = 0.20, critical = 0.80, heat = function(m) return m.swapPerc end,
         value = function(m)
             if m.swapTotalMb and m.swapTotalMb > 0 then
                 return percent(m.swapPerc)
@@ -114,7 +116,8 @@ local SEGMENTS = {
         end,
     },
     {
-        id = "gpu", setting = "show_gpu", group = "gpu", glyph = "gpu-usage", width = 34,
+        id = "gpu", setting = "show_gpu", group = "gpu", glyph = "gpu-usage",
+        activity = 0.50, critical = 0.95, heat = function(m) return m.gpuPerc end,
         value = function(m)
             if m.gpuAvailable and m.gpuPerc then
                 return percent(m.gpuPerc)
@@ -123,24 +126,30 @@ local SEGMENTS = {
         end,
     },
     {
-        id = "gpu_temp", setting = "show_gpu_temp", group = "gpu", glyph = "temperature", width = 34,
+        id = "gpu_temp", setting = "show_gpu_temp", group = "gpu", glyph = "temperature",
+        activity = 60, critical = 85, heat = function(m) return m.gpuTemp end,
         value = function(m) return m.gpuTemp and degrees(m.gpuTemp) or nil end,
         tip = function(m) return m.gpuTemp and string.format("%d°C", math.floor(m.gpuTemp + 0.5)) or nil end,
     },
     {
-        id = "vram", setting = "show_vram", group = "gpu", glyph = "memory", width = 42,
+        id = "vram", setting = "show_vram", group = "gpu", glyph = "memory",
+        activity = 0.50, critical = 0.90, heat = function(m) return m.vramPerc end,
         value = function(m) return m.vramUsedMb and gibibytes(m.vramUsedMb) or nil end,
     },
     {
-        id = "load", setting = "show_load", group = "sys", glyph = "performance", width = 40,
+        id = "load", setting = "show_load", group = "sys", glyph = "performance",
         value = function(m) return m.load1 and string.format("%.2f", m.load1) or nil end,
     },
     {
-        id = "net_rx", setting = "show_net", group = "net", glyph = "download", width = 46,
+        id = "net_rx", setting = "show_net", group = "net", glyph = "download",
+        activity = 1, critical = 50,
+        heat = function(m) return m.netRxPerSec and m.netRxPerSec / 1000000 or nil end,
         value = function(m) return m.netRxPerSec and perSecond(m.netRxPerSec) or nil end,
     },
     {
-        id = "net_tx", setting = "show_net", group = "net", glyph = "upload", width = 46,
+        id = "net_tx", setting = "show_net", group = "net", glyph = "upload",
+        activity = 1, critical = 50,
+        heat = function(m) return m.netTxPerSec and m.netTxPerSec / 1000000 or nil end,
         value = function(m) return m.netTxPerSec and perSecond(m.netTxPerSec) or nil end,
     },
 }
@@ -167,7 +176,37 @@ function M.readConfig()
         highlight_gamer_mode = bool("highlight_gamer_mode", true),
         flame = noctalia.getConfig("flame") or "flare",
         flame_style = noctalia.getConfig("flame_style") or "graph",
+        -- Same key and same default as the shell's sysmon widget: zero, meaning the
+        -- value hugs its text. Reserving width for the widest value a metric can reach
+        -- is what made this readout permanently as wide as a saturated network link.
+        label_min_width = math.max(0, tonumber(noctalia.getConfig("label_min_width")) or 0),
     }
+end
+
+-- The shell tints a sysmon value from its normal colour towards the highlight colour as
+-- the metric climbs, holding flat below the activity threshold and saturating at the
+-- critical one, with a jump to kActivityOnset the moment it crosses (sysmon_widget.cpp
+-- gradientFactor). Same curve here so a grouped plugin readout warms in step with the
+-- built-in widgets beside it.
+local ACTIVITY_ONSET = 0.25
+
+function M.gradientFactor(value, activity, critical)
+    if value == nil or activity == nil or critical == nil then
+        return 0
+    end
+    local v = math.max(value, 0)
+    local top = math.max(critical, 0)
+    if top <= 0 or v <= 0 then
+        return 0
+    end
+    local floor = math.max(0, math.min(activity, top))
+    if v <= floor then
+        return 0
+    end
+    if v >= top then
+        return 1
+    end
+    return ACTIVITY_ONSET + (1 - ACTIVITY_ONSET) * (v - floor) / (top - floor)
 end
 
 function M.formatSegments(m, config)
@@ -185,8 +224,11 @@ function M.formatSegments(m, config)
                     id = segment.id,
                     group = segment.group,
                     glyph = segment.glyph,
-                    width = segment.width,
                     text = text,
+                    -- Nothing has been sampled yet while loading, so nothing is hot.
+                    tint = (not loading) and segment.heat
+                        and M.gradientFactor(segment.heat(m), segment.activity, segment.critical)
+                        or 0,
                     -- Marked so the renderer can dim them: a dash in the value colour
                     -- reads as data.
                     placeholder = loading,
@@ -309,7 +351,6 @@ function M.flameBand(field, style)
             color2 = "#ffd27a",
             fillOpacity = 1.0,
             height = FLAME_HEIGHT,
-            flexGrow = 1,
         })
     end
 
@@ -326,68 +367,67 @@ function M.flameBand(field, style)
     return ui.row({ align = "end", gap = 1, height = FLAME_HEIGHT }, bars)
 end
 
-local function segmentNode(segment, showGlyphs)
+-- The shell warms a sysmon value from its normal colour towards the highlight colour
+-- (`error` by default) as the metric climbs. It lerps in HSV; a plugin can only name
+-- colours, so the ramp runs through the role's alpha instead -- the same direction over
+-- the same thresholds, on a coarser road.
+local function valueColor(segment)
+    if segment.placeholder then
+        -- A placeholder in the value colour reads as data; dim it so loading reads as
+        -- loading.
+        return "on_surface_variant"
+    end
+    if segment.tint <= 0 then
+        return "on_surface"
+    end
+    return string.format("error/%.2f", 0.55 + 0.45 * segment.tint)
+end
+
+-- Glyph and value share the colour, as they do in the shell: syncValueColor tints both
+-- from one currentValueColor unless an explicit icon_color overrides it.
+local function segmentNode(segment, config)
     local children = {}
-    if showGlyphs then
-        children[#children + 1] = ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" })
+    if config.show_glyphs then
+        children[#children + 1] = ui.glyph({ name = segment.glyph, size = 13, color = valueColor(segment) })
     end
-    children[#children + 1] = ui.label({
-        text = segment.text,
-        width = segment.width,
-        textAlign = "right",
-        -- A placeholder in the value colour reads as data; dim it so the loading state
-        -- reads as loading.
-        color = segment.placeholder and "on_surface_variant" or "on_surface",
-    })
+    local label = ui.label({ text = segment.text, color = valueColor(segment) })
+    if config.label_min_width > 0 then
+        -- ui.label takes width (a hard clamp) and maxWidth but no minWidth, so the
+        -- reservation goes on a wrapper flex, which has one. justify = "end" keeps the
+        -- digits against the right of the reserved space, so they grow leftwards instead
+        -- of shoving their neighbour.
+        label = ui.row({ minWidth = config.label_min_width, justify = "end" }, { label })
+    end
+    children[#children + 1] = label
     return ui.row({ align = "center", gap = 3 }, children)
-end
-
--- The pill belongs to whichever root the layout produced. Padding and radius are
--- unconditional in both orientations: painting the fill must not change the layout, or
--- every digit shifts the moment gamer mode is toggled.
--- A 12px band along one edge is easy to miss on a glance at a busy bar. The capsule
--- itself carries the heat as well, shifting off the theme tint into ember as the machine
--- works, so a loaded machine is obvious without looking for the flame.
-local function pillFill(burning)
-    if burning == nil then
-        return PILL_FILL
-    end
-    local alpha = math.floor(0x24 + math.max(0, math.min(1, burning)) * 0x5c)
-    return string.format("#ff5a00%02x", alpha)
-end
-
-local function pillProps(config, gm, vertical, burning)
-    local props = vertical
-            and { align = "center", gap = 2, paddingH = 3, paddingV = 4, radius = PILL_RADIUS }
-            or { align = "stretch", gap = 0, paddingH = 8, paddingV = 1, height = PILL_HEIGHT, radius = PILL_RADIUS }
-    if config.highlight_gamer_mode and gm and gm.enabled then
-        props.fill = pillFill(burning)
-    end
-    return props
 end
 
 -- Segments of the same group sit close together and groups sit further apart, which is
 -- what makes three clusters read as three clusters rather than one run of numbers.
+--
+-- Nothing here paints a background. The shell's sysmon widget draws no pill either: with
+-- `capsule = true` the bar wraps the widget in one, and drawing our own only fought it.
+-- The flame band is the whole of what this widget adds on top of a sysmon readout.
 function M.buildTree(m, gm, config, vertical, burning)
     local segments = M.formatSegments(m, config)
 
     if vertical then
-        -- A vertical bar is ~26px wide, so the horizontal width reservations would clip.
-        -- Segments stack glyph over value, centred, with no reserved width.
+        -- A vertical bar is ~26px wide, so a horizontal readout would clip. Segments
+        -- stack glyph over value, centred.
         local rows = {}
         for _, segment in ipairs(segments) do
             local cell = {}
             if config.show_glyphs then
-                cell[#cell + 1] = ui.glyph({ name = segment.glyph, size = 13, color = "on_surface_variant" })
+                cell[#cell + 1] = ui.glyph({ name = segment.glyph, size = 13, color = valueColor(segment) })
             end
             cell[#cell + 1] = ui.label({
                 text = segment.text,
                 textAlign = "center",
-                color = segment.placeholder and "on_surface_variant" or "on_surface",
+                color = valueColor(segment),
             })
             rows[#rows + 1] = ui.column({ align = "center", gap = 0 }, cell)
         end
-        return ui.column(pillProps(config, gm, true, nil), rows)
+        return ui.column({ align = "center", gap = 2 }, rows)
     end
 
     local groups = {}
@@ -399,45 +439,29 @@ function M.buildTree(m, gm, config, vertical, burning)
             groups[#groups + 1] = current
             currentId = segment.group
         end
-        current[#current + 1] = segmentNode(segment, config.show_glyphs)
+        current[#current + 1] = segmentNode(segment, config)
     end
 
-    -- A row paints its fill behind its own children, and every group is a row. That is
-    -- the only way to get heat *behind* the digits in a tree with no z-order, and it
-    -- costs nothing: the nodes already exist, only their fill changes.
     local children = {}
-    for index, group in ipairs(groups) do
-        local props = { align = "center", gap = 6 }
-        if burning ~= nil and #groups > 0 then
-            local column = math.max(1, math.min(FLAME_COLUMNS,
-                math.floor((index - 0.5) / #groups * FLAME_COLUMNS) + 1))
-            local local_heat = math.max(0, math.min(1, (flameField[column] or 0) * burning))
-            props.fill = string.format("#ff7a1a%02x", math.floor(0x10 + local_heat * 0x50))
-            props.radius = 6
-        end
-        children[#children + 1] = ui.row(props, group)
+    for _, group in ipairs(groups) do
+        children[#children + 1] = ui.row({ align = "center", gap = 6 }, group)
     end
+    local readout = ui.row({ align = "center", gap = 12 }, children)
 
-    -- A column, not a row: Task 5 appends the flame band underneath these groups, and
-    -- the pill's fill and padding belong to the container that holds both.
-    local props = pillProps(config, gm, false, burning)
     local lit = config.highlight_gamer_mode and gm and gm.enabled
-    local banded = lit and config.flame ~= "off"
-
-    -- The band lives below the digits, so the same height is reserved above them: the
-    -- text sits centred in the capsule, and the widget is one height in every state.
-    -- Reserving it unconditionally is what stops the bar reflowing when gamer mode is
-    -- switched or a flare ends.
-    local stack = { ui.spacer({ height = FLAME_HEIGHT }) }
-    stack[#stack + 1] = ui.row({ align = "center", gap = 12 }, children)
-    -- Absent, not flat: a band drawn at zero height is still a node to reconcile, and it
-    -- reads as a dead strip under the numbers.
-    if banded then
-        stack[#stack + 1] = M.flameBand(burning ~= nil and flameField or coldField, config.flame_style)
-    else
-        stack[#stack + 1] = ui.spacer({ height = FLAME_HEIGHT })
+    if not (lit and config.flame ~= "off") then
+        -- No band, no column: the readout alone is what a sysmon row looks like, and a
+        -- wrapper that holds one child is a node the reconciler still has to walk.
+        return readout
     end
-    return ui.column(props, stack)
+
+    -- A ui.* column stretches its children across the cross axis, so the band spans the
+    -- readout's width without asking. Absent rather than flat when unlit: a band drawn at
+    -- zero height still reconciles, and reads as a dead strip under the numbers.
+    return ui.column({ gap = 0 }, {
+        readout,
+        M.flameBand(burning ~= nil and flameField or coldField, config.flame_style),
+    })
 end
 
 local function burningLevel(config)
