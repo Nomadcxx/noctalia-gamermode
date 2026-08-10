@@ -36,6 +36,13 @@ live readings in an aligned table and ends with gamer-mode state.
 The panel shows a bar per reading, the power profile selector, the suspend
 profile selector, what the plugin has suspended, and the maintenance actions.
 
+![The panel with gamer mode running](panel.webp)
+
+Running under load. CPU and GPU are past their thresholds so their bars have
+warmed; RAM and swap have not. The mark carries its halo and the header its
+ember, and the suspend profile becomes a label because the session already
+recorded one.
+
 Pick `light` or `heavy` in the panel and press Enable, and that profile applies
 for the session. A plugin reads its own settings and cannot write them, so the
 choice rides along with the enable rather than changing the **Gamer mode
@@ -70,7 +77,8 @@ of suspended targets. Vertical bars stack each reading and omit the flame.
 
 ![Monitor widget with gamer mode off above and on below](monitor.webp)
 
-Gamer mode off above; the live flame below shows it running.
+Gamer mode off above; below it running under load, with the flame lit and the
+readings past their thresholds warmed toward the highlight colour.
 
 ### The pill
 
