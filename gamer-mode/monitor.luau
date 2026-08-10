@@ -34,9 +34,13 @@ local FLAME_COLUMNS = 28
 -- exposes only isVertical and outputName -- so this cannot be derived and has to be a
 -- setting. The default fits a 42px bar (33px capsule) and a 34px bar (30px capsule) over
 -- ~17px of digits; a thinner bar needs a smaller band or the slot clips.
-local FLAME_HEIGHT_DEFAULT = 10
-local FLAME_HEIGHT_MIN = 4
-local FLAME_HEIGHT_MAX = 16
+-- Measured on a 42px bar at the default capsule_thickness of 0.76: the pill's interior is
+-- 32px and the readout box takes 22 of them, leaving 10. The band is reserved
+-- symmetrically (see buildTree), so it gets half of what is left. Raising the shell's
+-- capsule_thickness is what buys a taller flame: at 0.95 the pill is ~40px and 9 fits.
+local FLAME_HEIGHT_DEFAULT = 5
+local FLAME_HEIGHT_MIN = 2
+local FLAME_HEIGHT_MAX = 12
 -- Embers stay alive at idle so the band still reads as lit.
 local HEAT_FLOOR = 0.12
 
@@ -531,21 +535,22 @@ function M.buildTree(m, gm, config, vertical, burning)
     end
     local readout = ui.row({ align = "center", gap = 12 }, children)
 
-    -- The slot is reserved whenever the flame could appear, not only while it burns.
-    -- Adding the band on toggle would change the content's height, and the shell centres
-    -- content inside the capsule, so every digit would settle by half the band. A slot
-    -- that is always there costs a constant offset instead, and a constant offset is
-    -- invisible in a way that movement never is.
+    -- The band's slot is reserved whenever the flame could appear, not only while it
+    -- burns, so toggling gamer mode never moves a digit. It is reserved *symmetrically* --
+    -- an empty spacer above matching the band below -- because a band on one side only
+    -- pushes the readout off the pill's centre by half its height, and on a 42px bar that
+    -- put the digits against the top edge with the flame hanging outside the pill.
     --
-    -- Reserving symmetrically -- a spacer above as well -- would keep the readout centred
-    -- too, but at 2 * flame_height it overflows a 30px capsule and the bar clips its
-    -- slots. That is the regression this widget already shipped once.
+    -- The cost is that the band can only be half of whatever the pill has spare, which is
+    -- why the default is small. The shell's capsule_thickness is the lever: it decides the
+    -- pill's height, and a taller pill affords a taller flame.
     if not (config.highlight_gamer_mode and config.flame ~= "off") then
         return readout
     end
 
     local lit = gm and gm.enabled and burning ~= nil
     return ui.column({ gap = 0 }, {
+        ui.spacer({ height = config.flame_height }),
         readout,
         M.flameBand(lit and flameField or coldField, config.flame_style, config.flame_height),
     })

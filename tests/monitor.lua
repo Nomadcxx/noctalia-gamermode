@@ -194,10 +194,13 @@ local tree = monitor.buildTree(FULL, { enabled = false, suspended = {} }, defaul
 -- The band's slot is reserved whenever the flame is enabled, lit or not, so the digits do
 -- not move when gamer mode is toggled. The readout is the column's first child.
 assert(tree.kind == "column", "an unlit readout still reserves the band, got " .. tostring(tree.kind))
-assert(#tree.children == 2, "readout and reserved band, got " .. #tree.children)
-assert(tree.children[1].kind == "row", "the readout is the first child")
-assert(#tree.children[1].children == 4,
-    "cpu, mem, gpu and net form four groups, got " .. #tree.children[1].children)
+assert(#tree.children == 3, "spacer, readout and reserved band, got " .. #tree.children)
+assert(tree.children[1].kind == "spacer", "a matching spacer balances the band above")
+assert(tree.children[1].spec.height == tree.children[3].spec.height,
+    "the spacer matches the band, or the readout is not centred")
+assert(tree.children[2].kind == "row", "the readout is the middle child")
+assert(#tree.children[2].children == 4,
+    "cpu, mem, gpu and net form four groups, got " .. #tree.children[2].children)
 
 -- Nothing paints a background. The bar draws the capsule when `capsule = true`; a fill
 -- of our own would sit inside it as a visible box around every cluster.
@@ -285,9 +288,9 @@ local dark = monitor.buildTree(FULL, off, defaults)
 -- Gamer mode adds the band and nothing else: no fill, no padding change, no extra
 -- segment. The readout inside is identical, so no digit moves horizontally.
 assert(lit.kind == "column", "a lit readout wraps the row and the band, got " .. tostring(lit.kind))
-assert(#lit.children == 2, "readout and band, got " .. #lit.children)
-assert(lit.children[1].kind == "row", "the readout stays a row inside the column")
-assert(#lit.children[1].children == #dark.children[1].children,
+assert(#lit.children == 3, "spacer, readout and band, got " .. #lit.children)
+assert(lit.children[2].kind == "row", "the readout stays a row inside the column")
+assert(#lit.children[2].children == #dark.children[2].children,
     "the same groups whether lit or not")
 assert(#fillsIn(lit) == 0, "lit paints no boxes either, got " .. #fillsIn(lit))
 
@@ -371,24 +374,24 @@ assert(defaultsFlame.flame == "flare", "flare by default")
 assert(defaultsFlame.flame_style == "graph", "graph by default")
 
 local litTree = monitor.buildTree(FULL, on, defaultsFlame, false, 0.8)
-assert(litTree.children[2].kind == "graph",
-    "graph style renders one graph node, got " .. tostring(litTree.children[2].kind))
+assert(litTree.children[3].kind == "graph",
+    "graph style renders one graph node, got " .. tostring(litTree.children[3].kind))
 -- The band spans the readout because a ui.* column stretches its children across the
 -- cross axis by default. It must not ask to grow along the main axis: flexGrow in a
 -- column is vertical, and the bar clips anything taller than its slot.
-assert(litTree.children[2].spec.flexGrow == nil, "the band does not grow vertically")
+assert(litTree.children[3].spec.flexGrow == nil, "the band does not grow vertically")
 
 local barsConfig = helpers.copy(defaultsFlame)
 barsConfig.flame_style = "bars"
 local barsTree = monitor.buildTree(FULL, on, barsConfig, false, 0.8)
-assert(barsTree.children[2].kind == "row", "bars style renders a row of boxes")
-assert(#barsTree.children[2].children == 28, "28 columns, got " .. #barsTree.children[2].children)
+assert(barsTree.children[3].kind == "row", "bars style renders a row of boxes")
+assert(#barsTree.children[3].children == 28, "28 columns, got " .. #barsTree.children[3].children)
 
 -- Lit but not burning still gets the band, drawn cold: without a separate resting field
 -- the live one would freeze mid-flame the moment a flare ended.
 local restingTree = monitor.buildTree(FULL, on, defaultsFlame, false, nil)
-assert(restingTree.children[2].kind == "graph", "the band is there while resting")
-for _, v in ipairs(restingTree.children[2].spec.values or {}) do
+assert(restingTree.children[3].kind == "graph", "the band is there while resting")
+for _, v in ipairs(restingTree.children[3].spec.values or {}) do
     assert(v == 0, "a resting band carries no heat, got " .. tostring(v))
 end
 
@@ -396,7 +399,7 @@ end
 -- when gamer mode comes on.
 local reserved = monitor.buildTree(FULL, off, defaultsFlame, false, 0.8)
 assert(reserved.kind == "column", "gamer mode off still reserves the slot")
-for _, v in ipairs(reserved.children[2].spec.values or {}) do
+for _, v in ipairs(reserved.children[3].spec.values or {}) do
     assert(v == 0, "the reserved band carries no heat, got " .. tostring(v))
 end
 local flameOff = helpers.copy(defaultsFlame)
@@ -535,26 +538,27 @@ assert(remaining < 0.02, "the field burns out with no heat, got " .. tostring(re
 
 -- ── band height ──
 
-assert(monitor.readConfig().flame_height == 10, "the band is 10px by default")
+assert(monitor.readConfig().flame_height == 5, "the band is 5px by default")
 
 -- A plugin cannot ask the shell how thick the bar is, so the height has to be a setting
 -- and it has to be clamped.
-mock.config.flame_height = 2
-assert(monitor.readConfig().flame_height == 4, "too small clamps up to 4")
+mock.config.flame_height = 1
+assert(monitor.readConfig().flame_height == 2, "too small clamps up to 2")
 mock.config.flame_height = 99
-assert(monitor.readConfig().flame_height == 16, "too large clamps down to 16")
+assert(monitor.readConfig().flame_height == 12, "too large clamps down to 12")
 mock.config.flame_height = "nonsense"
-assert(monitor.readConfig().flame_height == 10, "unparseable falls back to the default")
+assert(monitor.readConfig().flame_height == 5, "unparseable falls back to the default")
 
-mock.config.flame_height = 12
+mock.config.flame_height = 8
 local tallConfig = monitor.readConfig()
 local tall = monitor.buildTree(FULL, on, tallConfig, false, 0.8)
-assert(tall.children[2].spec.height == 12,
-    "the band honours the setting, got " .. tostring(tall.children[2].spec.height))
+assert(tall.children[3].spec.height == 8,
+    "the band honours the setting, got " .. tostring(tall.children[3].spec.height))
+assert(tall.children[1].spec.height == 8, "and the balancing spacer follows it")
 
 tallConfig.flame_style = "bars"
 local tallBars = monitor.buildTree(FULL, on, tallConfig, false, 0.8)
-assert(tallBars.children[2].spec.height == 12, "bars style honours it too")
+assert(tallBars.children[3].spec.height == 8, "bars style honours it too")
 mock.config.flame_height = nil
 
 -- A vertical bar is ~26px wide and the readout stacks glyph over value, so the flame is
@@ -578,7 +582,7 @@ local justOver = monitor.formatSegments(hotMetrics, monitor.readConfig())[1]
 assert(justOver.tint > 0, "51% is over the 50% activity threshold")
 
 local hotTree = monitor.buildTree(hotMetrics, off, monitor.readConfig(), false, nil)
-local hotSegment = hotTree.children[1].children[1].children[1]
+local hotSegment = hotTree.children[2].children[1].children[1]
 local hotColor = hotSegment.children[#hotSegment.children].spec.color
 local alpha = tonumber(string.match(hotColor, "^error/([%d%.]+)$"))
 assert(alpha ~= nil, "a tinted value names the error role with an alpha, got " .. tostring(hotColor))

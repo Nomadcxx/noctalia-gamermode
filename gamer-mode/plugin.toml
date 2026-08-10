@@ -196,9 +196,9 @@ key = "flame_height"
 type = "int"
 label_key = "settings.monitor.flame_height.label"
 description_key = "settings.monitor.flame_height.description"
-default = 10
-min = 4
-max = 16
+default = 5
+min = 2
+max = 12
 visible_when = { key = "highlight_gamer_mode", values = ["true"] }
 
 [[widget.setting]]

@@ -128,7 +128,7 @@
       },
       "flame_height": {
         "label": "Flame height",
-        "description": "Height of the flame band in pixels. Lower it on a thin bar, where a tall band leaves the readout no room."
+        "description": "Height of the flame band in pixels. The band is mirrored by an equal space above it so the readings stay centred, so it can only be half of whatever the pill has spare. Raise the bar's capsule thickness for a taller flame."
       }
     }
   },

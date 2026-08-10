@@ -117,15 +117,23 @@ the built-in `sysmon` widgets warms in step with them.
 | Icons | On | Places a glyph beside each reading. Turn it off for numbers only. |
 | Reserved value width | `0` | Pixels held for each reading. Zero lets values hug their text. |
 | Highlight while gamer mode is on | On | Adds the flame band under the readings. |
-| Flame height | `10` | How tall the flame band is, in pixels (4-16). Lower it on a thin bar, where a tall band leaves the readout no room. |
+| Flame height | `5` | How tall the flame band is, in pixels (2-12). See the note below on why the useful range is small. |
 | Flame | `flare` | `off`, a 900 ms `flare`, or `always`. |
 | Flame style | `graph` | One graph node, or 28 sharper `bars`. |
 
 While the flame is enabled the band's slot is held open whether or not it is
-burning, so toggling gamer mode never shifts the digits. The cost is that the
-readout sits half the band height above the capsule's centre; lower **Flame
-height** to reduce it, or set **Flame** to `off` for a readout centred exactly
-like a plain sysmon row.
+burning, so toggling gamer mode never shifts the digits. The space is reserved
+symmetrically -- an equal gap above the readings matches the band below -- so the
+readings stay centred in the pill rather than being pushed against its top edge.
+
+That symmetry is why the band has to be small. Measured on a 42px bar at the
+default capsule thickness of `0.76`, the pill's interior is 32px and the readings
+take 22 of them, leaving 10 to split between the gap and the band. Asking for
+more than half the spare room pushes the flame outside the pill.
+
+**The bar's capsule thickness is the lever.** It sets the pill's height, and a
+taller pill affords a taller flame: at `0.95` the pill is about 40px, which fits a
+9px band with the readings still centred.
 
 ### While gamer mode is on
 
