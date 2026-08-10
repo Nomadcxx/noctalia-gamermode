@@ -71,23 +71,42 @@ the cost of the one thing that runs continuously.
 
 ## 3. Band height, and holding the digits still
 
-`FLAME_HEIGHT` becomes a `flame_height` setting: default 10, range 4..16.
+`FLAME_HEIGHT` becomes a `flame_height` setting: default 5, range 2..12.
 
-It has to be a setting because the widget cannot know the bar's thickness, and 10px would
-clip on a thin bar. Default 10 fits a 42px bar (33px capsule) and a 34px bar (30px capsule)
-with the digits' ~17px.
+It has to be a setting because the widget cannot know the bar's thickness.
 
 **The band slot is reserved whenever the flame is enabled**, drawn empty when nothing is
-burning, so the digits never move on toggle.
+burning, so the digits never move on toggle. It is reserved **symmetrically** — an empty
+spacer above matching the band below — so the readout also stays centred in the pill.
 
-Rejected alternative: reserving symmetrically (a spacer above as well) would keep the
-readout centred *and* stable, but costs `2 * flame_height`. At 10px on a 30px capsule that
-is 37px of content, which overflows into the slot clip — the exact regression the previous
-revision fixed.
+### Corrected after measurement (2026-08-10)
 
-Accepted cost: the digits sit `flame_height / 2` above the capsule's centre permanently
-rather than settling by that much on toggle. A constant offset is invisible in a way motion
-is not, and lowering `flame_height` lowers the offset.
+This section first specified an *asymmetric* reservation at 10px, on the reasoning that a
+symmetric one would overflow. Measured on the laptop, that was wrong in both directions and
+shipped a visible regression: the digits were pushed against the pill's top edge and the
+band hung outside it.
+
+The real geometry on a 42px bar at the default `capsule_thickness` of 0.76:
+
+| Quantity | Measured |
+| --- | --- |
+| Pill interior | 32px (rows 5-36) |
+| Readout box | 22px (13px of ink) |
+| Spare | 10px |
+
+An asymmetric 10px band consumes the entire spare and offsets the readout by 5px, a quarter
+of the pill. A symmetric reservation costs `2 * flame_height`, so the band can only ever be
+half the spare — hence a default of 5, not 10.
+
+The earlier reasoning failed for two reasons: it estimated the readout at ~17px from the
+glyph size rather than measuring the laid-out box, and it compared against the bar's height
+rather than the pill's interior. Content is centred in the bar slot, not the pill, so a
+block taller than the pill spills past it while still being clipped only at the bar's edge
+— which is exactly what put the flame outside the capsule.
+
+**`capsule_thickness` is the lever for a taller flame.** It is a user setting (0.1..1.0,
+`settings_registry.cpp:3118`, with a per-monitor override) and it sets the pill's height.
+At 0.95 the pill is ~40px, which affords a 9px band with the readout still centred.
 
 When `flame = "off"` or `highlight_gamer_mode` is false, nothing is reserved and the readout
 is exactly centred, identical to a plain sysmon row.
