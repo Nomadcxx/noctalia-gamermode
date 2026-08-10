@@ -27,8 +27,10 @@ local nonceCounter = 0
 -- source the plugin was installed from, which differs per machine. The data directory is
 -- reported, so the file is written there once and referenced from disk.
 --
--- gamer-mode/logo.svg holds the same bytes and is the copy to edit; tests/logo.lua fails
--- if the two drift apart.
+-- gamer-mode/logo-dark.svg and logo-light.svg hold the same bytes and are the copies to
+-- edit; tests/logo.lua fails if any of them drift apart. Two files rather than one that
+-- gets rewritten: the shell caches textures by {path, targetSize}, so overwriting a
+-- single path would keep serving the previous theme's raster after a theme flip.
 local LOGO_SVG_DARK = [==[
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
   <defs>
