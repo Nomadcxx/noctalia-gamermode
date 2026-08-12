@@ -9,13 +9,20 @@ local helpers = require("helpers")
 -- here as a separate, cheap check.
 local portraitWidth = nil
 local portraitHeight = nil
-for index = 1, 6 do
-    local path = string.format("animoo-noctalia/assets/portrait-%02d.png", index)
+for index = 1, 11 do
+    local path = string.format("animoo-noctalia/assets/frame-%02d.png", index)
     local file = assert(io.open(path, "rb"), "missing portrait frame: " .. path)
-    local header = assert(file:read(24), "short portrait frame: " .. path)
+    local header = assert(file:read(26), "short portrait frame: " .. path)
     file:close()
     assert(header:sub(1, 8) == "\137PNG\r\n\26\n", "portrait frame is not PNG: " .. path)
     local width, height = string.unpack(">I4I4", header, 17)
+
+    -- The figure is composited straight onto the panel with no plate behind it, so a
+    -- frame without an alpha channel would paint its own background over the design.
+    -- IHDR colour type: 6 = RGBA, 4 = grey+alpha.
+    local colorType = header:byte(26)
+    assert(colorType == 6 or colorType == 4,
+        string.format("portrait frame has no alpha channel (PNG colour type %d): %s", colorType, path))
     portraitWidth = portraitWidth or width
     portraitHeight = portraitHeight or height
     assert(width == portraitWidth and height == portraitHeight,
@@ -140,8 +147,8 @@ _G.noctalia.pluginDir = function()
     return pluginDir
 end
 local existing = {}
-for i = 1, 6 do
-    existing[string.format("%s/assets/portrait-%02d.png", pluginDir, i)] = true
+for i = 1, 11 do
+    existing[string.format("%s/assets/frame-%02d.png", pluginDir, i)] = true
 end
 _G.noctalia.fileExists = function(path)
     return existing[path] == true
@@ -192,7 +199,7 @@ assert(heading.spec.motion == "loop" and heading.spec.glowRadius > 0,
 -- ── six resident frames, one visible ──
 
 local images = collectImages(panelRendered)
-assert(#images == 6, "all six frames exist as nodes, got " .. #images)
+assert(#images == 11, "all eleven frames exist as nodes, got " .. #images)
 local portrait = findByKey(panelRendered, "portrait")
 assert(portrait and portrait.kind == "row", "resident portrait frames use a child-capable row")
 
@@ -238,24 +245,35 @@ assert(visible == 1, "exactly one frame is visible at a time, got " .. visible)
 assert(animoo.frameAt(0) == 1, "the loop starts on the neutral frame")
 
 local seen = {}
-local cycleMs = animoo.cycleTicks() * (1000 / 12)
-for ms = 0, cycleMs - 1, 1000 / 12 do
+local cycleMs = animoo.cycleTicks() * (1000 / 24)
+for ms = 0, cycleMs - 1, 1000 / 24 do
     seen[animoo.frameAt(ms)] = (seen[animoo.frameAt(ms)] or 0) + 1
 end
-for frame = 1, 6 do
+for frame = 1, 11 do
     assert(seen[frame] ~= nil, "frame " .. frame .. " appears in the cycle")
 end
-assert(seen[1] > seen[4], "the neutral frame is held far longer than the closed-eye frame")
-assert(seen[4] == 1, "the blink is a single tick, not a stare")
+assert(seen[1] > seen[9], "the neutral frame is held far longer than the closed-eye frame")
+assert(seen[9] <= 2, "the blink is a beat, not a stare")
+
+-- The blink must be a contiguous fast run, not eyelid positions scattered through the
+-- breath -- that would read as a twitch rather than a blink.
+local blinkTicks = 0
+for _, frame in ipairs({ 7, 8, 9, 10, 11 }) do
+    blinkTicks = blinkTicks + (seen[frame] or 0)
+end
+local cycleTicks = animoo.cycleTicks()
+assert(blinkTicks / cycleTicks < 0.15,
+    "the blink occupies a small fraction of the cycle, got " .. blinkTicks .. "/" .. cycleTicks)
+assert(cycleTicks >= 24 * 3, "one full cycle lasts at least three seconds at 24fps, got " .. cycleTicks)
 assert(animoo.frameAt(cycleMs) == animoo.frameAt(0), "the cycle closes on itself")
 
 -- ── ticks only render on a frame change ──
 
 local before = panelRendered
-_G.onFrameTick(1) -- far less than one 12fps frame
+_G.onFrameTick(1) -- far less than one 24fps frame
 assert(panelRendered == before, "a sub-frame tick does not re-render")
 
-_G.onFrameTick(1000 / 12 * 20) -- well into the blink
+_G.onFrameTick(1000 / 24 * 20) -- well into the breath
 assert(panelRendered ~= before, "crossing a frame boundary re-renders")
 
 -- ── lifecycle ──
@@ -269,7 +287,7 @@ assert(frameTick == false, "closing the panel disables frame ticks")
 -- ── pause returns to the neutral frame and stops ticking ──
 
 _G.onOpen()
-_G.onFrameTick(1000 / 12 * 20)
+_G.onFrameTick(1000 / 24 * 20)
 _G.onTogglePause()
 assert(frameTick == false, "pausing stops frame ticks")
 local pausedImages = collectImages(panelRendered)

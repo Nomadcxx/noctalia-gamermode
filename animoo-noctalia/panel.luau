@@ -7,8 +7,8 @@
 -- `path` per frame would make the shell decode and upload the file again every time,
 -- which is the whole reason this looks like a lot of nodes for one picture.
 
-local FRAME_COUNT = 6
-local FPS = 12
+local FRAME_COUNT = 11
+local FPS = 24
 local FRAME_MS = 1000 / FPS
 
 local BASE = "#55edf510"
@@ -18,16 +18,29 @@ local M = {}
 
 -- ── the frame schedule ──
 --
--- A blink is fast and the rest is a slow breath, so the schedule holds the neutral
--- frames and rushes the eyelid ones. Expressed as {frame, hold-in-ticks} at 12fps.
+-- Two motions at different speeds: a slow continuous breath, and one fast blink per
+-- cycle. Frames 2, 4, 6, 7 and 11 are interpolated in-betweens, which is what lets the
+-- breath run at 24fps without reading as a five-position slideshow.
+--
+-- Expressed as {frame, hold-in-ticks} at 24fps. One full cycle is ~4.2s, which is
+-- roughly a resting breath and a natural blink interval.
 M.SCHEDULE = {
-    { frame = 1, ticks = 18 }, -- neutral, eyes open
-    { frame = 2, ticks = 6 },  -- inhale, hair drift
-    { frame = 3, ticks = 1 },  -- half blink
-    { frame = 4, ticks = 1 },  -- closed
-    { frame = 5, ticks = 1 },  -- half-open
-    { frame = 1, ticks = 14 }, -- back to neutral
-    { frame = 6, ticks = 5 },  -- exhale, return drift
+    -- breath in, hold, out — long holds at the extremes, quick through the middle
+    { frame = 1, ticks = 12 }, -- neutral, eyes open
+    { frame = 2, ticks = 8 },  -- easing into the breath
+    { frame = 3, ticks = 14 }, -- inhale, hair drift
+    { frame = 4, ticks = 8 },  -- passing through
+    { frame = 5, ticks = 14 }, -- exhale
+    { frame = 6, ticks = 8 },  -- easing back out
+
+    -- one blink, ~0.4s end to end
+    { frame = 7, ticks = 2 },  -- lid starting down
+    { frame = 8, ticks = 2 },  -- half
+    { frame = 9, ticks = 2 },  -- closed
+    { frame = 10, ticks = 2 }, -- half open
+    { frame = 11, ticks = 2 }, -- lid finishing up
+
+    { frame = 1, ticks = 22 }, -- settle
 }
 
 function M.cycleTicks()
@@ -58,7 +71,10 @@ function M.framePath(index)
     if not dir then
         return nil
     end
-    return string.format("%s/assets/portrait-%02d.png", dir, index)
+    -- The shell's texture cache is keyed by {path, size} with no mtime, so editing a
+    -- frame in place serves the stale raster until restart. Renaming the set is the
+    -- reliable way to ship new art; bump the prefix rather than overwriting.
+    return string.format("%s/assets/frame-%02d.png", dir, index)
 end
 
 -- ── state ──
