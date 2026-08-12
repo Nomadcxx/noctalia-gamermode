@@ -1,0 +1,24 @@
+id = "nomadcxx/animoo-noctalia"
+name = "Animoo"
+version = "0.1.0"
+plugin_api = 27
+author = "Nomadcxx"
+license = "MIT"
+tags = ["bar", "panel", "demo", "animation"]
+icon = "sparkles"
+description = "Animated Japanese wordmark and living-poster demo for native plugin gradients."
+
+[[panel]]
+id = "main"
+entry = "panel.luau"
+width = 520
+height = 760
+placement = "attached"
+position = "auto"
+# Matches Gamer Mode: opening from the bar leaves keyboard focus where it was,
+# and focus is only taken once you click inside the panel.
+keyboard_focus = "on_demand"
+
+[[widget]]
+id = "wordmark"
+entry = "wordmark.luau"

@@ -9,3 +9,14 @@ description = "Live CPU/RAM/GPU metrics and a one-click gamer mode that suspends
 plugin_api = 19
 dependencies = ["pgrep", "pkill", "powerprofilesctl", "systemctl"]
 tags = ["bar", "panel", "service", "gaming", "performance", "metrics"]
+
+[[plugin]]
+id = "nomadcxx/animoo-noctalia"
+name = "Animoo"
+version = "0.1.0"
+author = "Nomadcxx"
+license = "MIT"
+icon = "sparkles"
+description = "Animated Japanese wordmark and living-poster demo for native plugin gradients."
+plugin_api = 27
+tags = ["bar", "panel", "demo", "animation"]

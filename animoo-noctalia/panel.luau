@@ -1,0 +1,218 @@
+--!nonstrict
+--
+-- Animoo panel: a larger animated wordmark over a low-frame-rate "living poster".
+--
+-- The portrait is six PNGs on one fixed canvas. All six become ui.image nodes on the
+-- first render and stay in the tree forever; only `visible` moves. Swapping one node's
+-- `path` per frame would make the shell decode and upload the file again every time,
+-- which is the whole reason this looks like a lot of nodes for one picture.
+
+local FRAME_COUNT = 6
+local FPS = 12
+local FRAME_MS = 1000 / FPS
+
+local BASE = "#55edf510"
+local CREST = "#f4ffff"
+
+local M = {}
+
+-- ── the frame schedule ──
+--
+-- A blink is fast and the rest is a slow breath, so the schedule holds the neutral
+-- frames and rushes the eyelid ones. Expressed as {frame, hold-in-ticks} at 12fps.
+M.SCHEDULE = {
+    { frame = 1, ticks = 18 }, -- neutral, eyes open
+    { frame = 2, ticks = 6 },  -- inhale, hair drift
+    { frame = 3, ticks = 1 },  -- half blink
+    { frame = 4, ticks = 1 },  -- closed
+    { frame = 5, ticks = 1 },  -- half-open
+    { frame = 1, ticks = 14 }, -- back to neutral
+    { frame = 6, ticks = 5 },  -- exhale, return drift
+}
+
+function M.cycleTicks()
+    local total = 0
+    for _, step in ipairs(M.SCHEDULE) do
+        total = total + step.ticks
+    end
+    return total
+end
+
+-- Deterministic: the same elapsed time always yields the same frame, so the loop
+-- cannot drift and the test can assert on it without a clock.
+function M.frameAt(elapsedMs)
+    local tick = math.floor((tonumber(elapsedMs) or 0) / FRAME_MS)
+    local cycle = M.cycleTicks()
+    tick = tick % cycle
+    for _, step in ipairs(M.SCHEDULE) do
+        if tick < step.ticks then
+            return step.frame
+        end
+        tick = tick - step.ticks
+    end
+    return 1
+end
+
+function M.framePath(index)
+    local dir = noctalia.pluginDir()
+    if not dir then
+        return nil
+    end
+    return string.format("%s/assets/portrait-%02d.png", dir, index)
+end
+
+-- ── state ──
+
+local visibleFrame = 1
+local elapsedMs = 0
+local paused = false
+
+-- ── tree ──
+
+function M.wordmark()
+    return ui.label({
+        key = "animoo-heading",
+        text = "アニムー",
+        fontFamily = "Noto Sans Mono CJK JP",
+        fontSize = 34,
+        fontWeight = "bold",
+        color = BASE,
+        colors = { BASE, CREST, BASE },
+        stops = { 0.40, 0.50, 0.60 },
+        direction = "horizontal",
+        motion = "loop",
+        duration = 2600,
+        offsetFrom = -0.60,
+        offsetTo = 0.60,
+        glowRadius = 4,
+    })
+end
+
+-- Every frame node exists on every render with a stable key and path; only `visible`
+-- differs. That is what keeps the six textures resident.
+function M.portrait()
+    local dir = noctalia.pluginDir()
+    if not dir then
+        return M.missingFrames("no plugin directory")
+    end
+
+    local children = {}
+    local present = 0
+    for index = 1, FRAME_COUNT do
+        local path = M.framePath(index)
+        if path and noctalia.fileExists(path) then
+            present = present + 1
+            children[#children + 1] = ui.image({
+                key = string.format("portrait-%02d", index),
+                path = path,
+                width = 420,
+                height = 560,
+                fit = "contain",
+                visible = index == visibleFrame,
+            })
+        end
+    end
+
+    if present < FRAME_COUNT then
+        -- A labelled box rather than a blank panel: a silently empty poster reads as
+        -- a broken gradient, which is the one thing this demo must not imply.
+        return M.missingFrames(string.format("%d of %d portrait frames found", present, FRAME_COUNT))
+    end
+    return ui.box({ key = "portrait", width = 420, height = 560 }, children)
+end
+
+function M.missingFrames(reason)
+    return ui.box({ key = "portrait-missing", width = 420, height = 560, radius = 6, borderWidth = 1 }, {
+        ui.column({ align = "center", justify = "center", flexGrow = 1, gap = 6 }, {
+            ui.label({ text = "PORTRAIT UNAVAILABLE", fontSize = 12, color = "#ff6b6b" }),
+            ui.label({ text = reason, fontSize = 11, color = "#f0b429" }),
+        }),
+    })
+end
+
+function M.buildTree()
+    return ui.column({ padding = 20, gap = 14, flexGrow = 1, align = "center" }, {
+        M.wordmark(),
+        -- Microcopy names what is actually on screen. No invented telemetry.
+        ui.label({ text = "NATIVE GRADIENT TEXT / LEFT-RIGHT SIGNAL", fontSize = 10, color = "#55edf5" }),
+        ui.label({ text = string.format("PORTRAIT %d FPS / %d FRAMES", FPS, FRAME_COUNT), fontSize = 10,
+            color = "#55edf5" }),
+        M.portrait(),
+        ui.row({ align = "center", gap = 8 }, {
+            ui.button({
+                key = "pause",
+                text = paused and "Resume" or "Pause",
+                variant = "ghost",
+                tooltip = "Stop the portrait loop and return to the neutral frame",
+                onClick = "onTogglePause",
+            }),
+            ui.button({
+                key = "close",
+                glyph = "close",
+                variant = "ghost",
+                tooltip = "Close",
+                onClick = "onCloseClicked",
+            }),
+        }),
+    })
+end
+
+local function render()
+    panel.render(M.buildTree())
+end
+
+local function syncFrameTick()
+    if panel.setNeedsFrameTick then
+        panel.setNeedsFrameTick(not paused)
+    end
+end
+
+-- ── lifecycle ──
+
+function onOpen()
+    elapsedMs = 0
+    visibleFrame = 1
+    paused = false
+    render()
+    syncFrameTick()
+end
+
+function onClose()
+    -- Frame ticks are the panel's only ongoing cost; opening it again resets the loop.
+    if panel.setNeedsFrameTick then
+        panel.setNeedsFrameTick(false)
+    end
+end
+
+-- Re-rendering only on a frame change is what keeps a 12fps poster from asking the
+-- shell to diff a whole Lua tree at vsync.
+function onFrameTick(deltaMs)
+    if paused then
+        return
+    end
+    elapsedMs = elapsedMs + math.max(0, tonumber(deltaMs) or 0)
+    local nextFrame = M.frameAt(elapsedMs)
+    if nextFrame ~= visibleFrame then
+        visibleFrame = nextFrame
+        render()
+    end
+end
+
+function onTogglePause()
+    paused = not paused
+    if paused then
+        -- Parking on the neutral frame, not wherever the blink happened to be.
+        visibleFrame = 1
+        elapsedMs = 0
+    end
+    render()
+    syncFrameTick()
+end
+
+function onCloseClicked()
+    panel.close()
+end
+
+render()
+
+return M
