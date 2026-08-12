@@ -196,6 +196,31 @@ assert(#images == 6, "all six frames exist as nodes, got " .. #images)
 local portrait = findByKey(panelRendered, "portrait")
 assert(portrait and portrait.kind == "row", "resident portrait frames use a child-capable row")
 
+-- The ui.* stub above is pure data, so it happily records children on a node type the
+-- shell would refuse them on. ui.box is one of those: the reconciler's childContainer()
+-- returns null for it and logs "'box' cannot have children, N dropped", which is exactly
+-- how the six portrait frames first went missing on screen while this test stayed green.
+-- Pin the container allowlist so a leaf can never quietly swallow a subtree again.
+local CHILD_CAPABLE = { row = true, column = true, scroll = true }
+
+local function assertContainersAcceptChildren(node, path)
+    if type(node) ~= "table" then
+        return
+    end
+    path = path or node.kind or "root"
+    local children = node.children or {}
+    if #children > 0 then
+        assert(CHILD_CAPABLE[node.kind],
+            "'" .. tostring(node.kind) .. "' at " .. path .. " has " .. #children
+                .. " children but is a leaf in the shell; its subtree would be dropped")
+    end
+    for index, child in ipairs(children) do
+        assertContainersAcceptChildren(child, path .. " > " .. tostring(child.kind) .. "[" .. index .. "]")
+    end
+end
+
+assertContainersAcceptChildren(panelRendered)
+
 local visible = 0
 local paths = {}
 for _, image in ipairs(images) do
