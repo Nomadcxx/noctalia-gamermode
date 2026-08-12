@@ -4,6 +4,27 @@
 package.path = "./tests/?.lua;" .. package.path
 local helpers = require("helpers")
 
+-- The living-poster loop is not complete unless its real assets ship. The runtime
+-- tests below use fake paths to isolate the frame scheduler, so pin the binary bundle
+-- here as a separate, cheap check.
+local portraitWidth = nil
+local portraitHeight = nil
+for index = 1, 6 do
+    local path = string.format("animoo-noctalia/assets/portrait-%02d.png", index)
+    local file = assert(io.open(path, "rb"), "missing portrait frame: " .. path)
+    local header = assert(file:read(24), "short portrait frame: " .. path)
+    file:close()
+    assert(header:sub(1, 8) == "\137PNG\r\n\26\n", "portrait frame is not PNG: " .. path)
+    local width, height = string.unpack(">I4I4", header, 17)
+    portraitWidth = portraitWidth or width
+    portraitHeight = portraitHeight or height
+    assert(width == portraitWidth and height == portraitHeight,
+        string.format("portrait frame canvas drift: %s is %dx%d, expected %dx%d",
+            path, width, height, portraitWidth, portraitHeight))
+end
+assert(portraitWidth >= 420 and portraitHeight >= 560,
+    string.format("portrait source is too small for the panel: %dx%d", portraitWidth, portraitHeight))
+
 _G.ui = setmetatable({}, {
     __index = function(_, name)
         return function(spec, children)
