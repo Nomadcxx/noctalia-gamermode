@@ -114,19 +114,18 @@ function M.portrait()
     end
 
     if present < FRAME_COUNT then
-        -- A labelled box rather than a blank panel: a silently empty poster reads as
+        -- A labelled diagnostic rather than a blank panel: a silently empty poster reads as
         -- a broken gradient, which is the one thing this demo must not imply.
         return M.missingFrames(string.format("%d of %d portrait frames found", present, FRAME_COUNT))
     end
-    return ui.box({ key = "portrait", width = 420, height = 560 }, children)
+    return ui.row({ key = "portrait", width = 420, height = 560 }, children)
 end
 
 function M.missingFrames(reason)
-    return ui.box({ key = "portrait-missing", width = 420, height = 560, radius = 6, borderWidth = 1 }, {
-        ui.column({ align = "center", justify = "center", flexGrow = 1, gap = 6 }, {
-            ui.label({ text = "PORTRAIT UNAVAILABLE", fontSize = 12, color = "#ff6b6b" }),
-            ui.label({ text = reason, fontSize = 11, color = "#f0b429" }),
-        }),
+    return ui.column({ key = "portrait-missing", width = 420, height = 560, radius = 6, borderWidth = 1,
+        align = "center", justify = "center", gap = 6 }, {
+        ui.label({ text = "PORTRAIT UNAVAILABLE", fontSize = 12, color = "#ff6b6b" }),
+        ui.label({ text = reason, fontSize = 11, color = "#f0b429" }),
     })
 end
 

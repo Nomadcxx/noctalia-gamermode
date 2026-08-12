@@ -193,6 +193,8 @@ assert(heading.spec.motion == "loop" and heading.spec.glowRadius > 0,
 
 local images = collectImages(panelRendered)
 assert(#images == 6, "all six frames exist as nodes, got " .. #images)
+local portrait = findByKey(panelRendered, "portrait")
+assert(portrait and portrait.kind == "row", "resident portrait frames use a child-capable row")
 
 local visible = 0
 local paths = {}
@@ -276,13 +278,14 @@ for _, text in ipairs(collectText(panelRendered)) do
         "the panel invents no system metrics: " .. text)
 end
 
--- ── missing frames degrade to a labelled box, never a blank panel ──
+-- ── missing frames degrade to a labelled diagnostic, never a blank panel ──
 
 existing = {}
 _G.onOpen()
 assert(#collectImages(panelRendered) == 0, "no image nodes when the frames are missing")
 local diagnostic = findByKey(panelRendered, "portrait-missing")
-assert(diagnostic ~= nil, "missing frames leave a labelled diagnostic box")
+assert(diagnostic ~= nil, "missing frames leave a labelled diagnostic")
+assert(diagnostic.kind == "column", "the missing-frame diagnostic uses a child-capable column")
 local diagnosticText = table.concat(collectText(diagnostic), " ")
 assert(diagnosticText:match("UNAVAILABLE"), "the diagnostic box says what went wrong")
 
