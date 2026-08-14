@@ -1,7 +1,7 @@
 id = "nomadcxx/animoo-noctalia"
 name = "Animoo"
 version = "0.1.0"
-plugin_api = 27
+plugin_api = 28
 author = "Nomadcxx"
 license = "MIT"
 tags = ["bar", "panel", "demo", "animation"]

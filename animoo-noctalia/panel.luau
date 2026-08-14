@@ -2,7 +2,7 @@
 --
 -- Animoo panel: a larger animated wordmark over a low-frame-rate "living poster".
 --
--- The portrait is six PNGs on one fixed canvas. All six become ui.image nodes on the
+-- The portrait is eleven PNGs on one fixed canvas. All eleven become ui.image nodes on the
 -- first render and stay in the tree forever; only `visible` moves. Swapping one node's
 -- `path` per frame would make the shell decode and upload the file again every time,
 -- which is the whole reason this looks like a lot of nodes for one picture.
@@ -11,7 +11,9 @@ local FRAME_COUNT = 11
 local FPS = 24
 local FRAME_MS = 1000 / FPS
 
-local BASE = "#55edf510"
+-- Bar ink stays nearly invisible between crests. The panel heading is the title of
+-- the poster, so the same crest recipe sits on a readable cyan body.
+local BASE = "#55edf5c0"
 local CREST = "#f4ffff"
 
 local M = {}
@@ -74,7 +76,7 @@ function M.framePath(index)
     -- The shell's texture cache is keyed by {path, size} with no mtime, so editing a
     -- frame in place serves the stale raster until restart. Renaming the set is the
     -- reliable way to ship new art; bump the prefix rather than overwriting.
-    return string.format("%s/assets/frame-%02d.png", dir, index)
+    return string.format("%s/assets/cel-%02d.png", dir, index)
 end
 
 -- ── state ──
@@ -90,14 +92,14 @@ function M.wordmark()
         key = "animoo-heading",
         text = "アニムー",
         fontFamily = "Noto Sans Mono CJK JP",
-        fontSize = 34,
+        fontSize = 42,
         fontWeight = "bold",
         color = BASE,
         colors = { BASE, CREST, BASE },
         stops = { 0.40, 0.50, 0.60 },
         direction = "horizontal",
         motion = "loop",
-        duration = 2600,
+        duration = 1800,
         offsetFrom = -0.60,
         offsetTo = 0.60,
         glowRadius = 4,
@@ -105,7 +107,7 @@ function M.wordmark()
 end
 
 -- Every frame node exists on every render with a stable key and path; only `visible`
--- differs. That is what keeps the six textures resident.
+-- differs. That is what keeps the eleven textures resident.
 function M.portrait()
     local dir = noctalia.pluginDir()
     if not dir then
@@ -148,10 +150,12 @@ end
 function M.buildTree()
     return ui.column({ padding = 20, gap = 14, flexGrow = 1, align = "center" }, {
         M.wordmark(),
-        -- Microcopy names what is actually on screen. No invented telemetry.
-        ui.label({ text = "NATIVE GRADIENT TEXT / LEFT-RIGHT SIGNAL", fontSize = 10, color = "#55edf5" }),
-        ui.label({ text = string.format("PORTRAIT %d FPS / %d FRAMES", FPS, FRAME_COUNT), fontSize = 10,
-            color = "#55edf5" }),
+        -- One quiet line naming the two live features. No stacked all-caps eyebrows.
+        ui.label({
+            text = string.format("gradient text  ·  %d fps poster", FPS),
+            fontSize = 11,
+            color = "#55edf5a0",
+        }),
         M.portrait(),
         ui.row({ align = "center", gap = 8 }, {
             ui.button({

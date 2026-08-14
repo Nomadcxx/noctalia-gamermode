@@ -18,5 +18,5 @@ author = "Nomadcxx"
 license = "MIT"
 icon = "sparkles"
 description = "Animated Japanese wordmark and living-poster demo for native plugin gradients."
-plugin_api = 27
+plugin_api = 28
 tags = ["bar", "panel", "demo", "animation"]

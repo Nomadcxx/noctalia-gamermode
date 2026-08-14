@@ -10,7 +10,7 @@ local helpers = require("helpers")
 local portraitWidth = nil
 local portraitHeight = nil
 for index = 1, 11 do
-    local path = string.format("animoo-noctalia/assets/frame-%02d.png", index)
+    local path = string.format("animoo-noctalia/assets/cel-%02d.png", index)
     local file = assert(io.open(path, "rb"), "missing portrait frame: " .. path)
     local header = assert(file:read(26), "short portrait frame: " .. path)
     file:close()
@@ -148,7 +148,7 @@ _G.noctalia.pluginDir = function()
 end
 local existing = {}
 for i = 1, 11 do
-    existing[string.format("%s/assets/frame-%02d.png", pluginDir, i)] = true
+    existing[string.format("%s/assets/cel-%02d.png", pluginDir, i)] = true
 end
 _G.noctalia.fileExists = function(path)
     return existing[path] == true
